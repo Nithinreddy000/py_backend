@@ -33,6 +33,21 @@ python download_models.py
 # Set any required environment variables
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 
-# Start the Gunicorn server
+# Make sure PORT is set - Render sets this, but just to be safe
+if [ -z "${PORT}" ]; then
+  export PORT=8000
+  echo "PORT not set, defaulting to 8000"
+else
+  echo "Using PORT: ${PORT}"
+fi
+
+# Print debugging information
+echo "Environment:"
+echo "- PYTHONPATH: $PYTHONPATH"
+echo "- PORT: $PORT"
+echo "- Current directory: $(pwd)"
+echo "- Files in current directory: $(ls -la)"
+
+# Start the Gunicorn server with proper port binding
 echo "Starting Gunicorn server..."
-gunicorn app:app --config gunicorn_config.py 
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300 
