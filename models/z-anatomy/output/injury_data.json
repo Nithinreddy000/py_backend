@@ -1,0 +1,38 @@
+[
+    {
+        "bodyPart": "shoulder side",
+        "side": "right",
+        "status": "active",
+        "severity": "moderate date of onset: may 2, 2023",
+        "description": "Supraspinatus and infraspinatus tendinopathy with pain during overhead",
+        "colorCode": "#FF8888",
+        "recoveryProgress": 0,
+        "lastUpdated": "2025-03-16T21:39:39.867225"
+    },
+    {
+        "bodyPart": "arm side",
+        "side": "left",
+        "status": "past",
+        "severity": "mild date of onset: february 15, 2023"
+    },
+    {
+        "bodyPart": "arm side",
+        "side": "left",
+        "status": "past",
+        "severity": "mild date of onset: february 15, 2023 |  |",
+        "description": "Long head of biceps tendinitis with anterior shoulder pain during swimming,",
+        "colorCode": "#FFC966",
+        "recoveryProgress": 50,
+        "lastUpdated": "2025-03-16T21:39:39.867225"
+    },
+    {
+        "bodyPart": "shoulder side",
+        "side": "bilateral",
+        "status": "recovered",
+        "severity": "moderate date of onset: october 10, 2022",
+        "description": "Subacromial impingement syndrome affecting both shoulders, with greater",
+        "colorCode": "#90EE90",
+        "recoveryProgress": 100,
+        "lastUpdated": "2025-03-16T21:39:39.867225"
+    }
+]

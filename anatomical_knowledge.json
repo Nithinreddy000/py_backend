@@ -1,0 +1,590 @@
+{
+  "synonyms": {
+    "biceps": [
+      "biceps brachii",
+      "arm muscle",
+      "upper arm muscle",
+      "bicep"
+    ],
+    "triceps": [
+      "triceps brachii",
+      "posterior arm muscle",
+      "tricep"
+    ],
+    "quadriceps": [
+      "quads",
+      "thigh muscle",
+      "quadriceps femoris",
+      "quad"
+    ],
+    "hamstrings": [
+      "posterior thigh muscles",
+      "hamstring",
+      "biceps femoris"
+    ],
+    "ankle": [
+      "ankle joint",
+      "talocrural joint",
+      "talus",
+      "calcaneus",
+      "fibula",
+      "tibia"
+    ],
+    "knee": [
+      "knee joint",
+      "patella",
+      "tibiofemoral joint",
+      "patellofemoral joint",
+      "meniscus"
+    ],
+    "gastrocnemius": [
+      "calf muscle",
+      "gastroc",
+      "gastro"
+    ],
+    "deltoid": [
+      "shoulder muscle",
+      "delts",
+      "deltoideus"
+    ],
+    "pectoralis": [
+      "chest muscle",
+      "pecs",
+      "pectoralis major",
+      "pectoralis minor"
+    ],
+    "latissimus": [
+      "lat",
+      "latissimus dorsi",
+      "back muscle",
+      "lats"
+    ],
+    "trapezius": [
+      "traps",
+      "upper back muscle",
+      "neck muscle"
+    ],
+    "gluteus": [
+      "glutes",
+      "buttock muscle",
+      "gluteal",
+      "gluteus maximus",
+      "gluteus medius",
+      "gluteus minimus"
+    ],
+    "abdominals": [
+      "abs",
+      "abdominal muscles",
+      "core muscles",
+      "rectus abdominis"
+    ],
+    "soleus": [
+      "deep calf muscle",
+      "sole"
+    ],
+    "tibialis": [
+      "shin muscle",
+      "tibialis anterior",
+      "tibialis posterior"
+    ],
+    "adductor": [
+      "inner thigh muscle",
+      "adductor magnus",
+      "adductor longus",
+      "adductor brevis"
+    ],
+    "sartorius": [
+      "longest muscle",
+      "tailor's muscle"
+    ],
+    "gracilis": [
+      "medial thigh muscle",
+      "slender muscle"
+    ],
+    "iliopsoas": [
+      "hip flexor",
+      "psoas major",
+      "iliacus"
+    ],
+    "rectus femoris": [
+      "straight thigh muscle",
+      "quadriceps component"
+    ],
+    "vastus": [
+      "vastus lateralis",
+      "vastus medialis",
+      "vastus intermedius",
+      "quad component"
+    ],
+    "brachialis": [
+      "deep arm flexor",
+      "elbow flexor"
+    ],
+    "brachioradialis": [
+      "forearm muscle",
+      "elbow flexor"
+    ],
+    "pronator": [
+      "pronator teres",
+      "pronator quadratus",
+      "forearm rotator"
+    ],
+    "supinator": [
+      "forearm rotator",
+      "supination muscle"
+    ],
+    "flexor": [
+      "flexor carpi radialis",
+      "flexor carpi ulnaris",
+      "flexor digitorum",
+      "bending muscle"
+    ],
+    "extensor": [
+      "extensor carpi radialis",
+      "extensor carpi ulnaris",
+      "extensor digitorum",
+      "straightening muscle"
+    ],
+    "rotator cuff": [
+      "supraspinatus",
+      "infraspinatus",
+      "teres minor",
+      "subscapularis",
+      "shoulder stabilizers"
+    ],
+    "teres": [
+      "teres major",
+      "teres minor",
+      "shoulder muscle"
+    ],
+    "rhomboid": [
+      "rhomboid major",
+      "rhomboid minor",
+      "upper back muscle"
+    ],
+    "serratus": [
+      "serratus anterior",
+      "boxer's muscle",
+      "serrated muscle"
+    ],
+    "intercostal": [
+      "rib muscles",
+      "intercostal muscles",
+      "breathing muscles"
+    ],
+    "oblique": [
+      "external oblique",
+      "internal oblique",
+      "side abdominal muscles"
+    ],
+    "transversus": [
+      "transversus abdominis",
+      "deep core muscle"
+    ],
+    "erector spinae": [
+      "back extensor",
+      "spinal erector",
+      "paraspinal muscles"
+    ],
+    "multifidus": [
+      "deep back muscle",
+      "spine stabilizer"
+    ],
+    "piriformis": [
+      "hip rotator",
+      "sciatic muscle"
+    ],
+    "tensor fasciae latae": [
+      "tfl",
+      "hip abductor",
+      "iliotibial band muscle"
+    ],
+    "peroneus": [
+      "fibularis",
+      "ankle evertor",
+      "peroneus longus",
+      "peroneus brevis"
+    ],
+    "plantaris": [
+      "calf muscle",
+      "ankle plantar flexor"
+    ],
+    "popliteus": [
+      "knee unlocking muscle",
+      "knee rotator"
+    ],
+    "sternocleidomastoid": [
+      "scm",
+      "neck rotator",
+      "neck flexor"
+    ],
+    "scalene": [
+      "neck muscle",
+      "rib elevator",
+      "breathing muscle"
+    ],
+    "splenius": [
+      "neck extensor",
+      "head rotator",
+      "splenius capitis",
+      "splenius cervicis"
+    ],
+    "levator scapulae": [
+      "shoulder elevator",
+      "neck muscle"
+    ],
+    "diaphragm": [
+      "breathing muscle",
+      "respiratory muscle"
+    ],
+    "masseter": [
+      "jaw muscle",
+      "chewing muscle"
+    ],
+    "temporalis": [
+      "temple muscle",
+      "jaw muscle"
+    ],
+    "zygomaticus": [
+      "smiling muscle",
+      "facial expression muscle"
+    ],
+    "orbicularis": [
+      "orbicularis oculi",
+      "orbicularis oris",
+      "circular muscle",
+      "eye muscle",
+      "mouth muscle"
+    ]
+  },
+  "relationships": {
+    "biceps": [
+      "brachialis",
+      "brachioradialis",
+      "pronator teres",
+      "humerus",
+      "radius",
+      "elbow joint"
+    ],
+    "triceps": [
+      "anconeus",
+      "humerus",
+      "ulna",
+      "elbow joint"
+    ],
+    "quadriceps": [
+      "vastus lateralis",
+      "vastus medialis",
+      "vastus intermedius",
+      "rectus femoris",
+      "patella",
+      "femur",
+      "tibia",
+      "knee joint"
+    ],
+    "hamstrings": [
+      "biceps femoris",
+      "semitendinosus",
+      "semimembranosus",
+      "femur",
+      "tibia",
+      "fibula",
+      "knee joint"
+    ],
+    "ankle": [
+      "talus",
+      "calcaneus",
+      "tibia",
+      "fibula",
+      "talocrural joint",
+      "subtalar joint",
+      "tibialis anterior",
+      "tibialis posterior",
+      "peroneus longus",
+      "peroneus brevis",
+      "achilles tendon",
+      "gastrocnemius",
+      "soleus"
+    ],
+    "knee": [
+      "patella",
+      "femur",
+      "tibia",
+      "fibula",
+      "quadriceps",
+      "hamstrings",
+      "meniscus",
+      "anterior cruciate ligament",
+      "posterior cruciate ligament",
+      "medial collateral ligament",
+      "lateral collateral ligament",
+      "patellar tendon"
+    ],
+    "gastrocnemius": [
+      "soleus",
+      "plantaris",
+      "achilles tendon",
+      "calcaneus",
+      "tibia",
+      "fibula",
+      "ankle joint"
+    ],
+    "deltoid": [
+      "clavicle",
+      "scapula",
+      "humerus",
+      "shoulder joint",
+      "rotator cuff"
+    ],
+    "pectoralis": [
+      "clavicle",
+      "sternum",
+      "ribs",
+      "humerus",
+      "shoulder joint"
+    ],
+    "latissimus": [
+      "thoracolumbar fascia",
+      "iliac crest",
+      "ribs",
+      "vertebrae",
+      "humerus",
+      "shoulder joint"
+    ],
+    "trapezius": [
+      "occipital bone",
+      "vertebrae",
+      "scapula",
+      "clavicle",
+      "neck",
+      "shoulder joint"
+    ],
+    "gluteus": [
+      "ilium",
+      "sacrum",
+      "coccyx",
+      "femur",
+      "hip joint"
+    ],
+    "abdominals": [
+      "rectus abdominis",
+      "external oblique",
+      "internal oblique",
+      "transversus abdominis",
+      "ribs",
+      "pubic bone"
+    ],
+    "soleus": [
+      "gastrocnemius",
+      "achilles tendon",
+      "calcaneus",
+      "tibia",
+      "fibula",
+      "ankle joint"
+    ],
+    "tibialis": [
+      "tibia",
+      "fibula",
+      "tarsal bones",
+      "metatarsal bones",
+      "ankle joint"
+    ],
+    "adductor": [
+      "pubic bone",
+      "femur",
+      "hip joint",
+      "knee joint"
+    ],
+    "sartorius": [
+      "iliac spine",
+      "tibia",
+      "hip joint",
+      "knee joint"
+    ],
+    "gracilis": [
+      "pubic bone",
+      "tibia",
+      "hip joint",
+      "knee joint"
+    ],
+    "iliopsoas": [
+      "lumbar vertebrae",
+      "ilium",
+      "femur",
+      "hip joint"
+    ],
+    "rectus femoris": [
+      "ilium",
+      "patella",
+      "tibia",
+      "hip joint",
+      "knee joint"
+    ],
+    "vastus": [
+      "femur",
+      "patella",
+      "tibia",
+      "knee joint"
+    ],
+    "brachialis": [
+      "humerus",
+      "ulna",
+      "elbow joint"
+    ],
+    "brachioradialis": [
+      "humerus",
+      "radius",
+      "elbow joint",
+      "wrist joint"
+    ],
+    "pronator": [
+      "humerus",
+      "ulna",
+      "radius",
+      "elbow joint",
+      "wrist joint"
+    ],
+    "supinator": [
+      "humerus",
+      "ulna",
+      "radius",
+      "elbow joint",
+      "wrist joint"
+    ],
+    "flexor": [
+      "humerus",
+      "ulna",
+      "radius",
+      "carpal bones",
+      "metacarpal bones",
+      "phalanges",
+      "elbow joint",
+      "wrist joint"
+    ],
+    "extensor": [
+      "humerus",
+      "ulna",
+      "radius",
+      "carpal bones",
+      "metacarpal bones",
+      "phalanges",
+      "elbow joint",
+      "wrist joint"
+    ],
+    "rotator cuff": [
+      "scapula",
+      "humerus",
+      "shoulder joint"
+    ],
+    "teres": [
+      "scapula",
+      "humerus",
+      "shoulder joint"
+    ],
+    "rhomboid": [
+      "vertebrae",
+      "scapula"
+    ],
+    "serratus": [
+      "ribs",
+      "scapula"
+    ],
+    "intercostal": [
+      "ribs",
+      "sternum",
+      "vertebrae"
+    ],
+    "oblique": [
+      "ribs",
+      "ilium",
+      "pubic bone",
+      "linea alba"
+    ],
+    "transversus": [
+      "ribs",
+      "ilium",
+      "pubic bone",
+      "linea alba"
+    ],
+    "erector spinae": [
+      "vertebrae",
+      "ribs",
+      "ilium",
+      "skull"
+    ],
+    "multifidus": [
+      "vertebrae"
+    ],
+    "piriformis": [
+      "sacrum",
+      "femur",
+      "hip joint"
+    ],
+    "tensor fasciae latae": [
+      "ilium",
+      "tibia",
+      "hip joint",
+      "knee joint"
+    ],
+    "peroneus": [
+      "fibula",
+      "tarsal bones",
+      "metatarsal bones",
+      "ankle joint"
+    ],
+    "plantaris": [
+      "femur",
+      "calcaneus",
+      "knee joint",
+      "ankle joint"
+    ],
+    "popliteus": [
+      "femur",
+      "tibia",
+      "knee joint"
+    ],
+    "sternocleidomastoid": [
+      "sternum",
+      "clavicle",
+      "mastoid process",
+      "skull"
+    ],
+    "scalene": [
+      "cervical vertebrae",
+      "ribs"
+    ],
+    "splenius": [
+      "vertebrae",
+      "skull"
+    ],
+    "levator scapulae": [
+      "cervical vertebrae",
+      "scapula"
+    ],
+    "diaphragm": [
+      "ribs",
+      "sternum",
+      "vertebrae"
+    ],
+    "masseter": [
+      "zygomatic arch",
+      "mandible",
+      "temporomandibular joint"
+    ],
+    "temporalis": [
+      "temporal bone",
+      "mandible",
+      "temporomandibular joint"
+    ],
+    "zygomaticus": [
+      "zygomatic bone",
+      "corner of mouth"
+    ],
+    "orbicularis": [
+      "skull",
+      "eyelids",
+      "lips"
+    ]
+  },
+  "embeddings": {}
+}
