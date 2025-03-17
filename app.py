@@ -8,7 +8,7 @@ import time
 import cv2
 import threading
 from pathlib import Path
-from flask import Flask, request, jsonify, send_from_directory, make_response, send_file, redirect
+from flask import Flask, request, jsonify, send_from_directory, make_response, send_file, redirect, abort
 from flask_cors import CORS, cross_origin
 from werkzeug.utils import secure_filename
 from injury_visualization_service import InjuryVisualizationService
@@ -386,142 +386,98 @@ def upload_report():
 
 # Add this after the imports section but before any route definitions
 
-# Ensure proper CORS headers for all model file responses
-def add_cors_headers_to_model_response(response):
-    """Add CORS headers to model file responses to ensure 3D models load properly in the browser."""
+# Configure CORS to allow requests from any origin
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+# Add a global after_request handler to ensure CORS headers are present for all responses
+@app.after_request
+def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
     response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
+    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
     return response
 
-# Modify the serve_model function to use our CORS headers
 @app.route('/model/<path:filename>')
 def serve_model(filename):
     """Serve model files"""
     try:
-        print(f"Received model request for: {filename}")
+        print(f"Received request for model file: {filename}")
         
         # Convert Windows path separators to Unix style for URL paths
-        original_filename = filename
         filename = filename.replace('\\', '/')
         
-        if original_filename != filename:
-            print(f"Path separator conversion: '{original_filename}' -> '{filename}'")
+        # Try different path constructions to find the file
         
-        # Remove any duplicate "model" in the path
-        if filename.startswith('model/'):
-            filename = filename[6:]  # Remove the leading "model/"
-            print(f"Removed duplicate 'model/' prefix: {filename}")
-        
-        # Handle case where URL has multiple 'model' segments
-        parts = filename.split('/')
-        if 'model' in parts:
-            # Remove any 'model' segments from the middle of the path
-            parts = [p for p in parts if p != 'model']
-            filename = '/'.join(parts)
-            print(f"Cleaned path with multiple 'model' segments: {filename}")
-        
-        # Try different path constructions
-        # 1. First try: Direct path from script directory
+        # 1. Direct path from script directory
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
-        print(f"Attempting to serve model from: {file_path}")
+        print(f"Trying direct path: {file_path}")
         
-        # 2. Second try: Using Path object
-        if not os.path.exists(file_path):
-            print(f"Model file not found at path: {file_path}")
-            file_path = str(injury_service.script_dir / filename)
-            print(f"Trying path with script_dir: {file_path}")
+        # 2. Using script_dir from injury_service
+        try:
+            from injury_visualization_service import InjuryVisualizationService
+            injury_service = InjuryVisualizationService()
+            script_dir_path = str(injury_service.script_dir / filename)
+            print(f"Trying script_dir path: {script_dir_path}")
+            
+            if os.path.exists(script_dir_path):
+                file_path = script_dir_path
+                print(f"Found model at script_dir path: {file_path}")
+        except ImportError:
+            print("InjuryVisualizationService not available")
         
-        # 3. Third try: Alternative path construction
+        # 3. Try with 'models' directory
         if not os.path.exists(file_path):
-            print(f"Model file not found at path: {file_path}")
-            alt_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), *filename.split('/'))
-            print(f"Trying alternative path: {alt_path}")
-            if os.path.exists(alt_path):
-                file_path = alt_path
-                print(f"Found model at alternative path: {file_path}")
-        
-        # 4. Fourth try: With models directory
-        if not os.path.exists(file_path):
-            print(f"Model file not found at path: {file_path}")
-            models_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', filename)
+            models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+            models_path = os.path.join(models_dir, filename)
             print(f"Trying models directory path: {models_path}")
             if os.path.exists(models_path):
                 file_path = models_path
                 print(f"Found model at models directory path: {file_path}")
         
-        # 5. Fifth try: One level up from script directory
-        if not os.path.exists(file_path):
-            print(f"Model file not found at path: {file_path}")
-            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            parent_path = os.path.join(parent_dir, filename)
-            print(f"Trying parent directory path: {parent_path}")
-            if os.path.exists(parent_path):
-                file_path = parent_path
-                print(f"Found model at parent directory path: {file_path}")
-        
         # If file still not found, return 404
         if not os.path.exists(file_path):
             print(f"Model file not found at any attempted path")
             response = jsonify({'error': f'Model file not found: {filename}'})
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
             return response, 404
-            
-        print(f"Serving model file: {file_path}")
         
-        # Set correct MIME type for GLB files
-        mimetype = None
-        if filename.endswith('.glb'):
+        print(f"Serving model file from: {file_path}")
+        
+        # Get file modification time for caching
+        file_mtime = os.path.getmtime(file_path)
+        file_mtime_str = datetime.datetime.fromtimestamp(file_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
+        
+        # Get the appropriate mimetype based on file extension
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.glb':
             mimetype = 'model/gltf-binary'
-        elif filename.endswith('.gltf'):
+        elif ext == '.gltf':
             mimetype = 'model/gltf+json'
         else:
             mimetype = 'application/octet-stream'
         
-        # Check if the client sent an If-Modified-Since header
-        if_modified_since = request.headers.get('If-Modified-Since')
-        file_mtime = os.path.getmtime(file_path)
-        file_mtime_dt = datetime.datetime.fromtimestamp(file_mtime, tz=datetime.timezone.utc)
-        
-        # Format the file's mtime as an HTTP date
-        file_mtime_str = file_mtime_dt.strftime('%a, %d %b %Y %H:%M:%S GMT')
-        
-        # If the client has a cached version and it's still valid, return 304 Not Modified
-        if if_modified_since and if_modified_since == file_mtime_str:
-            response = make_response('', 304)
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
-            return response
-        
-        # Try to send the file with Flask's send_file
         try:
+            # Use send_file with explicit mimetype and cache control
             response = send_file(
                 file_path,
                 mimetype=mimetype,
                 as_attachment=False,
                 download_name=os.path.basename(file_path),
-                conditional=True  # Enable conditional responses
+                conditional=True,
+                etag=True,
+                last_modified=datetime.datetime.fromtimestamp(file_mtime)
             )
             
-            # Add CORS headers
+            # Add CORS headers and caching
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
             response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified'
-            
-            # Ensure Content-Disposition is properly set for GLB files
-            if filename.endswith('.glb'):
-                response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
-                # Double-check Content-Type is set properly
-                response.headers['Content-Type'] = 'model/gltf-binary'
-            
-            # Add caching headers
+            response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
             response.headers['Last-Modified'] = file_mtime_str
             response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
+            response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
             
             return response
             
@@ -540,32 +496,21 @@ def serve_model(filename):
                 response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
                 response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
                 response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified'
-                
-                # Ensure Content-Disposition is properly set for GLB files
-                if filename.endswith('.glb'):
-                    response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
-                    # Double-check Content-Type is set properly
-                    response.headers['Content-Type'] = 'model/gltf-binary'
-                
+                response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
                 response.headers['Last-Modified'] = file_mtime_str
                 response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
+                response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
                 
                 return response
                 
             except Exception as e:
                 print(f"Error reading file directly: {e}")
                 response = jsonify({'error': f'Error serving model file: {str(e)}'})
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
                 return response, 500
                 
     except Exception as e:
         print(f"Unexpected error in serve_model: {str(e)}")
         response = jsonify({'error': str(e)})
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
         return response, 500
 
 # Add OPTIONS handler for CORS preflight requests
@@ -2814,6 +2759,84 @@ def test_model_access(filename):
         return jsonify(response)
     except Exception as e:
         return jsonify({"error": str(e), "filename": filename}), 500
+
+# Add this towards the end of the file, before the "if __name__ == '__main__'" section
+
+@app.route('/check_model/<path:filename>')
+def check_model_exists(filename):
+    """Check if a model file exists and report its status"""
+    try:
+        # Convert Windows path separators to Unix style
+        filename = filename.replace('\\', '/')
+        
+        # List of places to look for the model
+        search_paths = []
+        
+        # 1. Direct path
+        direct_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        search_paths.append(("Direct path", direct_path))
+        
+        # 2. In models directory
+        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+        models_path = os.path.join(models_dir, filename)
+        search_paths.append(("Models directory", models_path))
+        
+        # 3. Try using script_dir if available
+        try:
+            from injury_visualization_service import InjuryVisualizationService
+            injury_service = InjuryVisualizationService()
+            script_dir_path = str(injury_service.script_dir / filename)
+            search_paths.append(("Script directory", script_dir_path))
+        except ImportError:
+            pass
+        
+        # Check each path
+        results = []
+        for name, path in search_paths:
+            exists = os.path.exists(path)
+            size = os.path.getsize(path) if exists else 0
+            results.append({
+                "location": name,
+                "path": path,
+                "exists": exists,
+                "size_bytes": size,
+                "readable": os.access(path, os.R_OK) if exists else False
+            })
+        
+        # Create directory listing of the model directories
+        model_dirs = []
+        try:
+            models_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+            if os.path.exists(models_base):
+                model_dirs.append({
+                    "dir": models_base,
+                    "files": os.listdir(models_base)
+                })
+                
+                # Check subdirectories
+                for subdir in os.listdir(models_base):
+                    subdir_path = os.path.join(models_base, subdir)
+                    if os.path.isdir(subdir_path):
+                        model_dirs.append({
+                            "dir": subdir_path,
+                            "files": os.listdir(subdir_path)
+                        })
+        except Exception as e:
+            model_dirs.append({"error": str(e)})
+        
+        # Return the results
+        return jsonify({
+            "requested_file": filename,
+            "search_results": results,
+            "any_exists": any(r["exists"] for r in results),
+            "model_directories": model_dirs,
+            "url": f"/model/{filename}"
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "requested_file": filename
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 
