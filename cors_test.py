@@ -52,7 +52,7 @@ def check_cors_headers(url):
 
 if __name__ == "__main__":
     # Default URLs to test
-    default_base_url = "https://py-backend-4crp.onrender.com"
+    default_base_url = "https://py-backend-410293317488.us-central1.run.app"
     
     # Use the provided URL or default
     base_url = sys.argv[1] if len(sys.argv) > 1 else default_base_url
