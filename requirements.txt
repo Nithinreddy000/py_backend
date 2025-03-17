@@ -29,8 +29,10 @@ boto3==1.26.84
 # NLP and transformers
 transformers==4.35.2  # Adding Hugging Face Transformers
 sentencepiece==0.1.99  # Common dependency for transformers
-spacy==3.5.0
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
+# Using an older version of spaCy that's more stable with pydantic
+spacy==3.2.0
+# Pin specific pydantic version for compatibility with spaCy
+pydantic==1.8.2
 
 # Image, video and ML dependencies
 pillow==9.4.0
@@ -53,7 +55,7 @@ ffmpeg-python==0.2.0
 
 # Utilities
 python-dotenv==1.0.0
-pydantic==1.10.7
+# Removing pydantic as we've defined it above with specific version
 pytest==7.3.1
 future==0.18.3
 gevent==22.10.2 
