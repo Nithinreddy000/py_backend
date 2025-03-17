@@ -1085,7 +1085,12 @@ from pathlib import Path
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
-import supervision as sv
+try:
+    import supervision as sv
+    SUPERVISION_AVAILABLE = True
+except ImportError:
+    print("Warning: supervision package not available. Some video processing features may be limited.")
+    SUPERVISION_AVAILABLE = False
 
 # Configure Cloudinary
 cloudinary.config(
@@ -1127,6 +1132,9 @@ def initialize_models():
     except Exception as e:
         print(f"Error initializing models: {e}")
         raise Exception(f"Failed to initialize required models: {e}")
+
+# Initialize models in a background thread
+threading.Thread(target=initialize_models).start()
 
 @app.route('/process_match_video', methods=['POST'])
 def process_match_video():

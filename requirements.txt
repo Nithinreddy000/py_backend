@@ -47,12 +47,12 @@ av==10.0.0
 ffmpeg-python==0.2.0
 
 # ML libraries (required for video processing)
-tensorflow==2.12.0
-torch==2.0.1
-torchvision==0.15.2
-mediapipe==0.10.0
+tensorflow-cpu==2.12.0  # Using CPU-only version to reduce image size
+torch==1.13.1  # More stable version for Python 3.9
+torchvision==0.14.1  # Matching version for torch 1.13.1
+mediapipe==0.10.5  # Updated to available version for Python 3.9
 ultralytics==8.0.20
-supervision==0.17.0
+# supervision==0.11.1  # Optional - not used in the code
 
 # Utilities
 python-dotenv==1.0.0
