@@ -29,6 +29,8 @@ boto3==1.26.84
 # NLP and transformers
 transformers==4.35.2  # Adding Hugging Face Transformers
 sentencepiece==0.1.99  # Common dependency for transformers
+spacy==3.5.0
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
 
 # Image, video and ML dependencies
 pillow==9.4.0

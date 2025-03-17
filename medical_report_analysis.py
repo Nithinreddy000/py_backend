@@ -18,13 +18,27 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import cv2
 import pdfplumber
-import spacy
 import re
 from datetime import datetime
 import traceback
 from typing import List, Dict, Any, Optional
 from google.cloud.firestore import SERVER_TIMESTAMP
 import tempfile
+
+# Try to import spaCy and the English model, making it optional
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+    try:
+        # Try to load the English model - if this fails, we'll need to handle it
+        nlp = spacy.load('en_core_web_sm')
+        print("SpaCy NLP model loaded successfully")
+    except OSError:
+        print("WARNING: Could not load en_core_web_sm model for spaCy. Using fallback methods.")
+        SPACY_AVAILABLE = False
+except ImportError:
+    print("WARNING: SpaCy library not available. Using fallback NER methods.")
+    SPACY_AVAILABLE = False
 
 class MedicalReportAnalysis:
     def __init__(self):
@@ -45,13 +59,20 @@ class MedicalReportAnalysis:
             print("Using fallback summarization method")
             self.summarizer = None
         
+        # Set up NLP model for text processing
         try:
-            import spacy
-            self.nlp = spacy.load('en_core_web_sm')
-        except:
-            import en_core_web_sm
-            self.nlp = en_core_web_sm.load()
-        print("NLP model loaded successfully")
+            if SPACY_AVAILABLE:
+                # Use the already loaded model from the module level
+                self.nlp = nlp
+                print("Using pre-loaded SpaCy NLP model")
+            else:
+                # Create a simple fallback for NER
+                self.nlp = None
+                print("Using fallback NER methods (regex-based)")
+        except Exception as e:
+            print(f"Error initializing NLP model: {e}")
+            self.nlp = None
+            print("Using fallback NER methods (regex-based)")
         
         try:
             if not firebase_admin._apps:
