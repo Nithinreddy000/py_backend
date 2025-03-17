@@ -384,6 +384,18 @@ def upload_report():
         print(f"Error in upload_report endpoint: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# Add this after the imports section but before any route definitions
+
+# Ensure proper CORS headers for all model file responses
+def add_cors_headers_to_model_response(response):
+    """Add CORS headers to model file responses to ensure 3D models load properly in the browser."""
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
+    return response
+
+# Modify the serve_model function to use our CORS headers
 @app.route('/model/<path:filename>')
 def serve_model(filename):
     """Serve model files"""

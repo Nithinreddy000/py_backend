@@ -7,9 +7,11 @@ import os
 import sys
 import traceback
 from flask import Flask, jsonify
+from flask_cors import CORS
 
 # Create a simple placeholder app in case imports fail
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 @app.route('/')
 def health_check():
@@ -52,6 +54,18 @@ try:
     # Import the app from app.py
     from app import app as main_app
     
+    # Import our CORS middleware
+    try:
+        from cors_middleware import apply_cors
+        
+        # Apply CORS middleware to main app if needed
+        if os.environ.get('CORS_ENABLED', 'true').lower() == 'true':
+            print("Applying enhanced CORS middleware...")
+            main_app.after_request(add_cors_headers)
+        
+    except ImportError:
+        print("CORS middleware not available, using default CORS")
+    
     # Replace our placeholder app with the main app
     app = main_app
     main_app_loaded = True
@@ -66,6 +80,14 @@ except Exception as e:
     @app.route('/error')
     def error_details_route():
         return f"<h1>Error loading main application</h1><pre>{error_details}</pre>"
+
+# Add CORS headers to all responses
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Range')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag')
+    return response
 
 def get_app_status():
     return "fully loaded" if main_app_loaded else "running in fallback mode"

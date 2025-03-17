@@ -15,6 +15,7 @@ RUN chmod +x startup.sh
 # Environment variables
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
+ENV CORS_ENABLED=true
 
 # Run the startup script
 CMD ["./startup.sh"] 
