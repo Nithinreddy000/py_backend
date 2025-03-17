@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy requirements file first for better caching
 COPY requirements.txt .
 
-# Install required system dependencies including OpenCV dependencies
+# Install required system dependencies including OpenCV dependencies and Blender
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     ffmpeg \
     git \
+    blender \
+    xvfb \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install Python dependencies
@@ -51,6 +54,12 @@ EXPOSE 8080
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Make the Blender installation script executable
+RUN chmod +x install_blender.sh
+
+# Verify Blender installation
+RUN blender --version
 
 # Run the application with Gunicorn with increased timeout
 CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 

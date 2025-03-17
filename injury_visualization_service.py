@@ -177,10 +177,51 @@ class InjuryVisualizationService:
                         blender_path = os.path.join(path, 'blender.exe' if os.name == 'nt' else 'blender')
                         break
                 
+                # Check if blender is available by running a simple command
+                try:
+                    subprocess.run([blender_path, '--version'], capture_output=True, check=True)
+                    print(f"Blender found at: {blender_path}")
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    print("Blender not found. Attempting to install...")
+                    
+                    # Detect the operating system and install Blender
+                    if os.name == 'nt':  # Windows
+                        print("Automatic Blender installation on Windows is not supported.")
+                        print("Please install Blender manually from https://www.blender.org/download/")
+                        raise Exception("Blender not installed on Windows")
+                    else:  # Linux/macOS
+                        # Check if we're on a Debian/Ubuntu system
+                        if os.path.exists('/usr/bin/apt'):
+                            print("Detected Debian/Ubuntu system. Installing Blender...")
+                            subprocess.run(['sudo', 'apt', 'update'], check=True)
+                            subprocess.run(['sudo', 'apt', 'install', '-y', 'blender'], check=True)
+                            blender_path = '/usr/bin/blender'
+                        # Check if we're on a RHEL/CentOS system
+                        elif os.path.exists('/usr/bin/yum'):
+                            print("Detected RHEL/CentOS system. Installing Blender...")
+                            subprocess.run(['sudo', 'yum', 'install', '-y', 'epel-release'], check=True)
+                            subprocess.run(['sudo', 'yum', 'install', '-y', 'blender'], check=True)
+                            blender_path = '/usr/bin/blender'
+                        # Check if we're on macOS with Homebrew
+                        elif os.path.exists('/usr/local/bin/brew') or os.path.exists('/opt/homebrew/bin/brew'):
+                            print("Detected macOS with Homebrew. Installing Blender...")
+                            brew_path = '/usr/local/bin/brew' if os.path.exists('/usr/local/bin/brew') else '/opt/homebrew/bin/brew'
+                            subprocess.run([brew_path, 'install', 'blender'], check=True)
+                            blender_path = '/usr/local/bin/blender'
+                        else:
+                            raise Exception("Unsupported operating system for automatic Blender installation")
+                        
+                        # Verify installation
+                        try:
+                            subprocess.run([blender_path, '--version'], capture_output=True, check=True)
+                            print(f"Blender successfully installed at: {blender_path}")
+                        except (subprocess.SubprocessError, FileNotFoundError):
+                            raise Exception("Blender installation failed")
+                
                 print(f"Using Blender path: {blender_path}")
             except Exception as e:
-                print(f"Error finding Blender path: {e}")
-                raise Exception("Blender not found in system PATH or common locations")
+                print(f"Error finding or installing Blender: {e}")
+                raise Exception(f"Blender not found or could not be installed: {str(e)}")
 
             # Generate unique output path for this visualization
             output_path = self.output_dir / f'painted_model_{int(time.time())}.glb'
@@ -528,10 +569,25 @@ except Exception as e:
             processed_injuries = self.process_injury_data(injury_data)
             print(f"Processed injuries: {processed_injuries}")
             
-            # Paint the model with injuries (even if empty)
-            painted_model_path = self.paint_model(processed_injuries, use_xray)
-            
-            return painted_model_path
+            try:
+                # Paint the model with injuries (even if empty)
+                painted_model_path = self.paint_model(processed_injuries, use_xray)
+                return painted_model_path
+            except Exception as blender_error:
+                if "Blender not found" in str(blender_error) or "Blender installation failed" in str(blender_error):
+                    print("Blender error detected. Providing detailed error message.")
+                    error_message = (
+                        "Blender is required for 3D model visualization but is not installed on the server. "
+                        "Please install Blender using one of the following methods:\n\n"
+                        "For Ubuntu/Debian: sudo apt update && sudo apt install -y blender\n"
+                        "For CentOS/RHEL: sudo yum install -y epel-release && sudo yum install -y blender\n"
+                        "For Docker: Add 'RUN apt-get update && apt-get install -y blender' to your Dockerfile\n\n"
+                        "After installation, restart the application."
+                    )
+                    raise Exception(error_message) from blender_error
+                else:
+                    # Re-raise the original error for other issues
+                    raise
             
         except Exception as e:
             print(f"Error in visualization process: {str(e)}")
@@ -690,18 +746,32 @@ except Exception as e:
                 print("Falling back to standard visualization method")
             
             # Step 3: Fall back to standard visualization if enhanced approach fails
-            painted_model_path = self.process_and_visualize(injury_data, use_xray)
-            
-            if not painted_model_path:
-                raise Exception("Failed to create visualization")
+            try:
+                painted_model_path = self.process_and_visualize(injury_data, use_xray)
                 
-            print(f"Successfully created standard visualization at: {painted_model_path}")
-            
-            return {
-                'status': 'success',
-                'injury_data': injury_data,
-                'model_path': painted_model_path
-            }
+                if not painted_model_path:
+                    raise Exception("Failed to create visualization")
+                    
+                print(f"Successfully created standard visualization at: {painted_model_path}")
+                
+                return {
+                    'status': 'success',
+                    'injury_data': injury_data,
+                    'model_path': painted_model_path
+                }
+            except Exception as blender_error:
+                if "Blender is required" in str(blender_error) or "Blender not found" in str(blender_error) or "Blender installation failed" in str(blender_error):
+                    error_message = str(blender_error)
+                    print(f"Blender installation error: {error_message}")
+                    return {
+                        'status': 'error',
+                        'message': error_message,
+                        'error_type': 'blender_not_installed',
+                        'injury_data': injury_data  # Still return the processed injury data
+                    }
+                else:
+                    # Re-raise for other errors
+                    raise
             
         except Exception as e:
             print(f"Error in visualization process: {str(e)}")
