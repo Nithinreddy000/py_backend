@@ -30,6 +30,8 @@ boto3==1.26.84
 transformers==4.35.2  # Adding Hugging Face Transformers
 sentencepiece==0.1.99  # Common dependency for transformers
 accelerate==0.27.2    # Required for Hugging Face models
+google-generativeai==0.3.1  # Required for Gemini API
+protobuf==3.20.3  # Required for compatibility with TensorFlow and other libraries
 # Using an older version of spaCy that's more stable with pydantic
 spacy==3.2.0
 # Pin specific pydantic version for compatibility with spaCy
