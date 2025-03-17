@@ -384,65 +384,52 @@ def upload_report():
         print(f"Error in upload_report endpoint: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# Add this after the imports section but before any route definitions
-
-# Configure CORS to allow requests from any origin
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
-
-# Add a global after_request handler to ensure CORS headers are present for all responses
 @app.after_request
 def add_cors_headers(response):
+    """Add CORS headers to all responses"""
+    # Always overwrite CORS headers to ensure consistency
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Range'
     response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
     response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
+    response.headers['Vary'] = 'Origin'
+    
+    # Add content security policy to allow loading from CDNs
+    if 'Content-Security-Policy' not in response.headers:
+        response.headers['Content-Security-Policy'] = "default-src 'self' unpkg.com cdn.jsdelivr.net ajax.googleapis.com cdnjs.cloudflare.com; img-src 'self' data:; style-src 'self' 'unsafe-inline' unpkg.com cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' unpkg.com cdn.jsdelivr.net ajax.googleapis.com cdnjs.cloudflare.com;"
+    
     return response
 
 @app.route('/model/<path:filename>')
 def serve_model(filename):
     """Serve model files"""
     try:
-        print(f"Received request for model file: {filename}")
+        # Normalize the filename to prevent directory traversal attacks
+        filename = os.path.normpath(filename).replace('\\', '/')
         
-        # Convert Windows path separators to Unix style for URL paths
-        filename = filename.replace('\\', '/')
+        # Define base paths to search for model files
+        base_paths = [
+            os.path.join(os.getcwd(), 'models'),
+            os.path.join(os.getcwd(), 'static', 'models'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'models'),
+            '/app/models',
+        ]
         
-        # Try different path constructions to find the file
+        # Set full file path for the model file from any of the base paths
+        file_path = None
+        for base_path in base_paths:
+            test_path = os.path.join(base_path, filename)
+            if os.path.exists(test_path) and os.path.isfile(test_path):
+                file_path = test_path
+                break
         
-        # 1. Direct path from script directory
-        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
-        print(f"Trying direct path: {file_path}")
-        
-        # 2. Using script_dir from injury_service
-        try:
-            from injury_visualization_service import InjuryVisualizationService
-            injury_service = InjuryVisualizationService()
-            script_dir_path = str(injury_service.script_dir / filename)
-            print(f"Trying script_dir path: {script_dir_path}")
-            
-            if os.path.exists(script_dir_path):
-                file_path = script_dir_path
-                print(f"Found model at script_dir path: {file_path}")
-        except ImportError:
-            print("InjuryVisualizationService not available")
-        
-        # 3. Try with 'models' directory
-        if not os.path.exists(file_path):
-            models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
-            models_path = os.path.join(models_dir, filename)
-            print(f"Trying models directory path: {models_path}")
-            if os.path.exists(models_path):
-                file_path = models_path
-                print(f"Found model at models directory path: {file_path}")
-        
-        # If file still not found, return 404
-        if not os.path.exists(file_path):
-            print(f"Model file not found at any attempted path")
-            response = jsonify({'error': f'Model file not found: {filename}'})
-            return response, 404
-        
-        print(f"Serving model file from: {file_path}")
+        # If file not found in any base path, return 404
+        if file_path is None:
+            print(f"Model file not found: {filename}")
+            print(f"Searched paths: {base_paths}")
+            return make_response(jsonify({"error": f"Model file not found: {filename}"}), 404)
         
         # Get file modification time for caching
         file_mtime = os.path.getmtime(file_path)
@@ -473,45 +460,21 @@ def serve_model(filename):
             response.headers['Access-Control-Allow-Origin'] = '*'
             response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
-            response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
             response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
             response.headers['Last-Modified'] = file_mtime_str
             response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
             response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
             
             return response
-            
+        
         except Exception as e:
-            print(f"Error using send_file: {e}")
-            
-            # Fallback: Read the file directly and return its contents
-            try:
-                with open(file_path, 'rb') as f:
-                    data = f.read()
-                
-                response = make_response(data)
-                response.headers['Content-Type'] = mimetype
-                response.headers['Content-Length'] = str(len(data))
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
-                response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified'
-                response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
-                response.headers['Last-Modified'] = file_mtime_str
-                response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
-                response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
-                
-                return response
-                
-            except Exception as e:
-                print(f"Error reading file directly: {e}")
-                response = jsonify({'error': f'Error serving model file: {str(e)}'})
-                return response, 500
-                
+            print(f"Error sending file: {e}")
+            return make_response(jsonify({"error": f"Error accessing model file: {str(e)}"}), 500)
+    
     except Exception as e:
-        print(f"Unexpected error in serve_model: {str(e)}")
-        response = jsonify({'error': str(e)})
-        return response, 500
+        print(f"Error serving model: {e}")
+        return make_response(jsonify({"error": f"Server error: {str(e)}"}), 500)
 
 # Add OPTIONS handler for CORS preflight requests
 @app.route('/model/<path:filename>', methods=['OPTIONS'])
@@ -521,8 +484,9 @@ def model_options(filename):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
-    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
     response.headers['Access-Control-Max-Age'] = '3600'  # Cache preflight request for 1 hour
+    response.headers['Vary'] = 'Origin'
     return response
 
 @app.route('/focus_mesh/<path:filename>/<mesh_name>')
@@ -2681,6 +2645,7 @@ def _corsify_actual_response(response):
 @app.after_request
 def after_request(response):
     """Add CORS headers to all responses if they don't exist yet."""
+    # We'll use this as a backup to the main add_cors_headers function
     # Only add headers if they don't already exist
     if 'Access-Control-Allow-Origin' not in response.headers:
         response.headers.add('Access-Control-Allow-Origin', '*')
@@ -2695,6 +2660,10 @@ def after_request(response):
     if 'Access-Control-Expose-Headers' not in response.headers:
         response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag')
     
+    # Add Cross-Origin-Resource-Policy if it doesn't exist
+    if 'Cross-Origin-Resource-Policy' not in response.headers:
+        response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
+        
     return response
 
 @app.route('/test_model/<path:filename>')
@@ -2837,6 +2806,30 @@ def check_model_exists(filename):
             "error": str(e),
             "requested_file": filename
         }), 500
+
+@app.after_request
+def fallback_cors_headers(response):
+    """Add CORS headers to all responses if they don't exist yet."""
+    # We'll use this as a backup to the main add_cors_headers function
+    # Only add headers if they don't already exist
+    if 'Access-Control-Allow-Origin' not in response.headers:
+        response.headers.add('Access-Control-Allow-Origin', '*')
+    if 'Access-Control-Allow-Headers' not in response.headers:
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Range')
+    if 'Access-Control-Allow-Methods' not in response.headers:
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    if 'Access-Control-Max-Age' not in response.headers:
+        response.headers.add('Access-Control-Max-Age', '3600')  # Cache preflight requests for 1 hour
+    
+    # Add Access-Control-Expose-Headers for all routes if it doesn't exist
+    if 'Access-Control-Expose-Headers' not in response.headers:
+        response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag')
+    
+    # Add Cross-Origin-Resource-Policy if it doesn't exist
+    if 'Cross-Origin-Resource-Policy' not in response.headers:
+        response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
+        
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 
