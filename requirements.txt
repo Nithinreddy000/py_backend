@@ -32,10 +32,9 @@ sentencepiece==0.1.99  # Common dependency for transformers
 accelerate==0.27.2    # Required for Hugging Face models
 google-generativeai==0.3.1  # Required for Gemini API
 protobuf==3.20.3  # Required for compatibility with TensorFlow and other libraries
-# Using an older version of spaCy that's more stable with pydantic
-spacy==3.2.0
-# Pin specific pydantic version for compatibility with spaCy
-pydantic==1.8.2
+# Update spaCy and pydantic versions for compatibility
+spacy==3.7.2
+pydantic==2.5.3
 
 # Image, video and ML dependencies
 pillow==9.4.0
@@ -58,7 +57,6 @@ supervision==0.11.1
 
 # Utilities
 python-dotenv==1.0.0
-# Removing pydantic as we've defined it above with specific version
 pytest==7.3.1
 future==0.18.3
 gevent==22.10.2 
