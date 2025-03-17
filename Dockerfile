@@ -41,6 +41,8 @@ ENV PORT=8080
 ENV FLASK_APP=app.py
 ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
+ENV DISABLE_ML_MODELS=false
+ENV LAZY_LOAD_MODELS=true
 
 # Expose the port
 EXPOSE 8080
@@ -49,5 +51,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run the application with Gunicorn
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 120 app:app 
+# Run the application with Gunicorn with increased timeout
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 

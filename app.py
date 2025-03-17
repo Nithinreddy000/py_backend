@@ -534,7 +534,31 @@ def focus_mesh(filename, mesh_name):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Simple health check endpoint to verify the server is running."""
-    return jsonify({'status': 'ok'})
+    import platform
+    import sys
+    
+    # Get basic system information
+    system_info = {
+        'python_version': sys.version,
+        'platform': platform.platform(),
+        'node': platform.node(),
+    }
+    
+    # Check if ML models are initialized
+    ml_status = {
+        'pose_model': pose_model is not None,
+        'jersey_detector': jersey_detector is not None,
+        'reader': reader is not None,
+        'lazy_load_enabled': os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true',
+        'ml_disabled': os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true',
+    }
+    
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'system_info': system_info,
+        'ml_status': ml_status,
+    })
 
 @app.route('/match_processing_status/<match_id>', methods=['GET'])
 def match_processing_status(match_id):
@@ -1103,6 +1127,23 @@ jersey_mapping_cache = {}
 def initialize_models():
     global pose_model, jersey_detector, reader
     
+    # Check if ML models are disabled via environment variable
+    if os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true':
+        print("ML models are disabled via environment variable")
+        pose_model = None
+        jersey_detector = None
+        reader = None
+        return
+    
+    # Check if we should lazy load models
+    lazy_load = os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true'
+    if lazy_load:
+        print("ML models will be lazy loaded when needed")
+        pose_model = None
+        jersey_detector = None
+        reader = None
+        return
+    
     try:
         print("Initializing YOLOv8 models and OCR...")
         
@@ -1115,7 +1156,7 @@ def initialize_models():
             pose_model = YOLO(model_path)
         else:
             print(f"Warning: Pose model not found at {model_path}, downloading from ultralytics...")
-            pose_model = YOLO("yolov8x-pose.pt")
+            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model to save time
     
         # Initialize YOLOv8 object detection model for jersey detection
         jersey_detector = YOLO("yolov8n.pt")
@@ -1128,8 +1169,11 @@ def initialize_models():
         print(f"Error initializing models: {e}")
         raise Exception(f"Failed to initialize required models: {e}")
 
-# Initialize models in a background thread
-threading.Thread(target=initialize_models).start()
+# Initialize models in a background thread if not lazy loading
+if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
+    threading.Thread(target=initialize_models).start()
+else:
+    print("Skipping immediate model initialization due to LAZY_LOAD_MODELS=true")
 
 @app.route('/process_match_video', methods=['POST'])
 def process_match_video():
