@@ -403,78 +403,66 @@ def add_cors_headers(response):
 
 @app.route('/model/<path:filename>')
 def serve_model(filename):
-    """Serve model files"""
+    """Serve 3D model files"""
     try:
-        # Normalize the filename to prevent directory traversal attacks
-        filename = os.path.normpath(filename).replace('\\', '/')
+        # Log the requested file
+        app.logger.info(f"Model request: {filename}")
         
-        # Define base paths to search for model files
-        base_paths = [
-            os.path.join(os.getcwd(), 'models'),
-            os.path.join(os.getcwd(), 'static', 'models'),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models'),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'models'),
-            '/app/models',
+        # Try looking in different locations (for flexibility in file organization)
+        possible_locations = [
+            os.path.join(app.root_path, 'models', filename),
+            os.path.join('/app/models', filename),
+            os.path.join('/app', filename),
+            os.path.join('./models', filename),
+            filename  # Try the raw path
         ]
         
-        # Set full file path for the model file from any of the base paths
+        # Check each location
         file_path = None
-        for base_path in base_paths:
-            test_path = os.path.join(base_path, filename)
-            if os.path.exists(test_path) and os.path.isfile(test_path):
-                file_path = test_path
+        for location in possible_locations:
+            if os.path.isfile(location):
+                file_path = location
+                app.logger.info(f"Found model at: {location}")
                 break
         
-        # If file not found in any base path, return 404
-        if file_path is None:
-            print(f"Model file not found: {filename}")
-            print(f"Searched paths: {base_paths}")
-            return make_response(jsonify({"error": f"Model file not found: {filename}"}), 404)
+        if not file_path:
+            app.logger.error(f"Model file not found: {filename}")
+            # Try to list files in the model directory to help debugging
+            model_dir = os.path.join(app.root_path, 'models')
+            if os.path.exists(model_dir):
+                files = os.listdir(model_dir)
+                app.logger.info(f"Files in model directory: {files}")
+            return jsonify({'error': 'Model file not found'}), 404
         
-        # Get file modification time for caching
-        file_mtime = os.path.getmtime(file_path)
-        file_mtime_str = datetime.datetime.fromtimestamp(file_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT')
+        # Determine content type - important for browser to interpret file correctly
+        content_type = 'application/octet-stream'
+        if filename.endswith('.glb'):
+            content_type = 'model/gltf-binary'
+        elif filename.endswith('.gltf'):
+            content_type = 'model/gltf+json'
+        elif filename.endswith('.fbx'):
+            content_type = 'application/octet-stream'
+        elif filename.endswith('.obj'):
+            content_type = 'text/plain'
         
-        # Get the appropriate mimetype based on file extension
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.glb':
-            mimetype = 'model/gltf-binary'
-        elif ext == '.gltf':
-            mimetype = 'model/gltf+json'
-        else:
-            mimetype = 'application/octet-stream'
+        # Log successful serving
+        file_size = os.path.getsize(file_path)
+        app.logger.info(f"Serving model: {filename}, size: {file_size} bytes, type: {content_type}")
         
-        try:
-            # Use send_file with explicit mimetype and cache control
-            response = send_file(
-                file_path,
-                mimetype=mimetype,
-                as_attachment=False,
-                download_name=os.path.basename(file_path),
-                conditional=True,
-                etag=True,
-                last_modified=datetime.datetime.fromtimestamp(file_mtime)
-            )
-            
-            # Add CORS headers and caching
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Range'
-            response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
-            response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
-            response.headers['Last-Modified'] = file_mtime_str
-            response.headers['Cache-Control'] = 'public, max-age=31536000'  # Cache for 1 year
-            response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
-            
-            return response
+        # Create a response with the file
+        response = send_file(file_path, mimetype=content_type)
         
-        except Exception as e:
-            print(f"Error sending file: {e}")
-            return make_response(jsonify({"error": f"Error accessing model file: {str(e)}"}), 500)
-    
+        # Add CORS headers explicitly for model files
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Max-Age', '3600')
+        response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
+        
+        return response
     except Exception as e:
-        print(f"Error serving model: {e}")
-        return make_response(jsonify({"error": f"Server error: {str(e)}"}), 500)
+        app.logger.error(f"Error serving model: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # Add OPTIONS handler for CORS preflight requests
 @app.route('/model/<path:filename>', methods=['OPTIONS'])

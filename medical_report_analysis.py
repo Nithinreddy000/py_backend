@@ -4,7 +4,15 @@ import numpy as np
 from PIL import Image
 import fitz  # PyMuPDF
 import torch
-from transformers import pipeline
+
+# Try to import transformers, but make it optional
+try:
+    from transformers import pipeline
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    print("WARNING: Transformers library not available. Using fallback summarization.")
+    TRANSFORMERS_AVAILABLE = False
+
 from mistral_analysis_service import MistralAnalysisService
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
@@ -24,9 +32,14 @@ class MedicalReportAnalysis:
         print("Initializing Medical Report Analysis service...")
         self.mistral_service = MistralAnalysisService()
         try:
-            # Use PyTorch version instead of TensorFlow for summarization
-            self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn", framework="pt")
-            print("Summarization model loaded successfully!")
+            # Only attempt to load the summarizer if transformers is available
+            if TRANSFORMERS_AVAILABLE:
+                # Use PyTorch version instead of TensorFlow for summarization
+                self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn", framework="pt")
+                print("Summarization model loaded successfully!")
+            else:
+                print("Transformers not available, using fallback summarization")
+                self.summarizer = None
         except Exception as e:
             print(f"Error loading summarization model: {e}")
             print("Using fallback summarization method")
@@ -553,6 +566,26 @@ class MedicalReportAnalysis:
             else:
                 return '#90EE90'  # Light green
 
+    def _fallback_summarize(self, text, max_length=130):
+        """Simple fallback summarization method when transformers is not available."""
+        # Extract first few sentences, up to max_length
+        sentences = re.split(r'[.!?]\s+', text)
+        summary = []
+        current_length = 0
+        
+        for sentence in sentences:
+            if current_length + len(sentence) <= max_length:
+                summary.append(sentence)
+                current_length += len(sentence) + 1  # +1 for the period
+            else:
+                break
+                
+        if not summary:
+            # If no full sentences fit, take the first max_length characters
+            return text[:max_length] + "..."
+            
+        return ". ".join(summary) + "."
+
     async def process_medical_report(self, pdf_path, athlete_id, title, diagnosis):
         """Process a medical report PDF and store results."""
         try:
@@ -591,7 +624,13 @@ class MedicalReportAnalysis:
                 summary_text = text_content[:1024]
             else:
                 summary_text = text_content
-            summary = self.summarizer(summary_text, max_length=130, min_length=30)[0]['summary_text']
+                
+            # Use appropriate summarization method
+            if self.summarizer is not None:
+                summary = self.summarizer(summary_text, max_length=130, min_length=30)[0]['summary_text']
+            else:
+                # Use fallback summarization
+                summary = self._fallback_summarize(summary_text, max_length=130)
             
             # Store results in Firestore
             report_data = {

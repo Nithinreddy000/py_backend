@@ -1,5 +1,3 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
 import numpy as np
 from typing import Dict, List, Any
 import json
@@ -7,18 +5,21 @@ import os
 import requests
 import re  # Add import for regex
 
+# Try to import transformers and torch, but make them optional
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    import torch
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    print("WARNING: Transformers or PyTorch not available. MistralAnalysisService will use API-only mode.")
+    TRANSFORMERS_AVAILABLE = False
+
 class MistralAnalysisService:
     def __init__(self):
-        # Initialize with a publicly available model
-        self.model_name = "facebook/opt-350m"
-        print(f"Loading model {self.model_name}...")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_name,
-            torch_dtype=torch.float16,
-            device_map="auto"
-        )
-        print("Model loaded successfully!")
+        # Get API key from environment variables
+        self.api_key = os.getenv('MISTRAL_API_KEY', '')
+        self.api_url = "https://api.mistral.ai/v1/chat/completions"
+        self.using_api = self.api_key != ''
         
         # Sport-specific prompts
         self.sport_prompts = {
@@ -41,8 +42,30 @@ class MistralAnalysisService:
             'gluteus maximus': ['Gluteus_Maximus', 'Glute', 'gluteus.l', 'gluteus.r']
         }
 
-        self.api_key = os.getenv('MISTRAL_API_KEY', '')
-        self.api_url = "https://api.mistral.ai/v1/chat/completions"
+        # Only load the model if transformers is available and we don't have an API key
+        if TRANSFORMERS_AVAILABLE and not self.using_api:
+            try:
+                # Initialize with a publicly available model
+                self.model_name = "facebook/opt-350m"
+                print(f"Loading model {self.model_name}...")
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    torch_dtype=torch.float16,
+                    device_map="auto"
+                )
+                print("Model loaded successfully!")
+            except Exception as e:
+                print(f"Error loading model: {e}")
+                self.model = None
+                self.tokenizer = None
+        else:
+            self.model = None
+            self.tokenizer = None
+            if self.using_api:
+                print("Using Mistral API for analysis")
+            else:
+                print("No transformers available and no API key - will use fallback methods")
 
     def generate_analysis(self, metrics: Dict[str, float], sport_type: str, historical_data: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -75,21 +98,54 @@ Provide analysis in the following format:
 4. Specific Recommendations
 5. Training Focus Points [/INST]"""
 
-        # Generate analysis
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        outputs = self.model.generate(
-            inputs["input_ids"],
-            max_length=1000,
-            temperature=0.7,
-            top_p=0.95,
-            do_sample=True,
-            num_return_sequences=1
-        )
+        # Try API first if available
+        if self.using_api:
+            analysis_text = self._call_mistral(prompt)
+            if analysis_text:
+                return self._parse_analysis(analysis_text)
+
+        # Use local model if available
+        if self.model and self.tokenizer:
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+            outputs = self.model.generate(
+                inputs["input_ids"],
+                max_length=1000,
+                temperature=0.7,
+                top_p=0.95,
+                do_sample=True,
+                num_return_sequences=1
+            )
+            
+            analysis_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            return self._parse_analysis(analysis_text)
         
-        analysis_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Fallback method if neither API nor model is available
+        return self._generate_fallback_analysis(metrics, sport_type)
+    
+    def _generate_fallback_analysis(self, metrics: Dict[str, float], sport_type: str) -> Dict[str, Any]:
+        """Generate a simple fallback analysis when no model is available."""
+        # Basic analysis based on metrics
+        strengths = []
+        improvements = []
         
-        # Parse the analysis into structured format
-        return self._parse_analysis(analysis_text)
+        # Analyze each metric
+        for name, value in metrics.items():
+            if value > 0.7:  # Arbitrary threshold
+                strengths.append(f"High {name}: {value:.2f}")
+            elif value < 0.3:  # Arbitrary threshold
+                improvements.append(f"Low {name}: {value:.2f}")
+        
+        return {
+            "overall_assessment": f"Basic {sport_type} performance analysis based on provided metrics.",
+            "key_strengths": strengths[:3],  # Top 3 strengths
+            "areas_for_improvement": improvements[:3],  # Top 3 improvements
+            "recommendations": ["Maintain regular training schedule", 
+                               "Focus on areas with lower scores",
+                               "Consider professional coaching for specific techniques"],
+            "training_focus": ["General conditioning", 
+                              "Technique refinement",
+                              "Recovery management"]
+        }
 
     def generate_real_time_feedback(self, current_metrics: Dict[str, float], sport_type: str) -> str:
         """
@@ -414,33 +470,43 @@ Format the response as a structured list."""
                     'full_response': response
                 }
             
-            # Fallback to local model
-            print("Using local model for muscle relationship analysis")
-            inputs = self.tokenizer(context, return_tensors="pt").to(self.model.device)
-            outputs = self.model.generate(
-                inputs["input_ids"],
-                max_length=800,  # Increased for more detailed response
-                temperature=0.3,
-                top_p=0.95,
-                do_sample=True,
-                num_return_sequences=1
-            )
-            
-            analysis_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Extract suggestions from the response
-            suggestions = []
-            lines = analysis_text.split('\n')
-            for line in lines:
-                if ':' in line and any(word in line.lower() for word in ['suggest', 'recommend', 'mesh', 'muscle']):
-                    parts = line.split(':')
-                    if len(parts) > 1:
-                        mesh_names = parts[1].strip().split(',')
-                        suggestions.extend([name.strip() for name in mesh_names if name.strip()])
-            
+            # Fallback to local model if available
+            if self.model and self.tokenizer and TRANSFORMERS_AVAILABLE:
+                print("Using local model for muscle relationship analysis")
+                inputs = self.tokenizer(context, return_tensors="pt").to(self.model.device)
+                outputs = self.model.generate(
+                    inputs["input_ids"],
+                    max_length=800,  # Increased for more detailed response
+                    temperature=0.3,
+                    top_p=0.95,
+                    do_sample=True,
+                    num_return_sequences=1
+                )
+                
+                analysis_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                
+                # Extract suggestions from the response
+                suggestions = []
+                lines = analysis_text.split('\n')
+                for line in lines:
+                    if ':' in line and any(word in line.lower() for word in ['suggest', 'recommend', 'mesh', 'muscle']):
+                        parts = line.split(':')
+                        if len(parts) > 1:
+                            mesh_names = parts[1].strip().split(',')
+                            suggestions.extend([name.strip() for name in mesh_names if name.strip()])
+                
+                return {
+                    'suggestions': suggestions,
+                    'full_response': analysis_text
+                }
+                
+            # If neither API nor model is available, return a simple fallback
+            print("No AI service available for muscle relationship analysis, using fallback")
             return {
-                'suggestions': suggestions,
-                'full_response': analysis_text
+                'suggestions': ['biceps', 'triceps', 'deltoid', 'pectoralis', 'latissimus'],
+                'outer_meshes': ['biceps', 'triceps', 'deltoid'],
+                'inner_meshes': ['pectoralis', 'latissimus'],
+                'fallback': True
             }
         except Exception as e:
             print(f"Error analyzing muscle relationships: {str(e)}")
