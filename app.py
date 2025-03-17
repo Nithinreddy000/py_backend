@@ -1085,12 +1085,7 @@ from pathlib import Path
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
-try:
-    import supervision as sv
-    SUPERVISION_AVAILABLE = True
-except ImportError:
-    print("Warning: supervision package not available. Some video processing features may be limited.")
-    SUPERVISION_AVAILABLE = False
+import supervision as sv
 
 # Configure Cloudinary
 cloudinary.config(

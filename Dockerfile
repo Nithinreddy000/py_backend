@@ -5,11 +5,18 @@ WORKDIR /app
 # Copy requirements file first for better caching
 COPY requirements.txt .
 
-# Install required system dependencies
+# Install required system dependencies including OpenCV dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
     curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies with specific versions to avoid the werkzeug issue
