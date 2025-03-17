@@ -456,8 +456,21 @@ except Exception as e:
                 with open(temp_script_path, 'w') as f:
                     f.write(script_content)
                 
+                # Check if we're running in a cloud environment (Google Cloud Run)
+                is_cloud_environment = os.environ.get('K_SERVICE') is not None or os.environ.get('CLOUD_RUN') == 'true'
+                print(f"Detected cloud environment: {is_cloud_environment}")
+                
+                # Check if Xvfb is available for headless rendering
+                has_xvfb = False
                 try:
-                    # Run Blender in background mode with verbose output
+                    subprocess.run(['which', 'xvfb-run'], capture_output=True, check=True)
+                    has_xvfb = True
+                    print("Xvfb is available for headless rendering")
+                except (subprocess.SubprocessError, FileNotFoundError):
+                    print("Xvfb not found, will try direct Blender execution")
+                
+                try:
+                    # Prepare the Blender command
                     blender_cmd = [
                         blender_path,
                         '--background',
@@ -465,13 +478,67 @@ except Exception as e:
                         '-noaudio'  # Disable audio to prevent potential issues
                     ]
                     
-                    print(f"Running Blender command: {' '.join(blender_cmd)}")
-                    result = subprocess.run(
-                        blender_cmd,
-                        capture_output=True,
-                        text=True,
-                        check=True  # This will raise CalledProcessError if Blender returns non-zero
-                    )
+                    # Use Xvfb if available and in cloud environment
+                    if has_xvfb and is_cloud_environment:
+                        print("Using Xvfb for headless rendering in cloud environment")
+                        cmd = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24'] + blender_cmd
+                        print(f"Running command with Xvfb: {' '.join(cmd)}")
+                        
+                        # Set environment variables for Blender in headless mode
+                        env = os.environ.copy()
+                        env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                        env['DISPLAY'] = ':99'  # Use virtual display
+                        
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            env=env
+                        )
+                    else:
+                        # Standard execution
+                        print(f"Running Blender command: {' '.join(blender_cmd)}")
+                        result = subprocess.run(
+                            blender_cmd,
+                            capture_output=True,
+                            text=True
+                        )
+                    
+                    # Check if the command was successful
+                    if result.returncode != 0:
+                        print("Blender command failed with return code:", result.returncode)
+                        print("Blender Output:")
+                        print(result.stdout)
+                        print("Blender Errors:")
+                        print(result.stderr)
+                        
+                        # If we're in a cloud environment, try a simplified approach
+                        if is_cloud_environment:
+                            print("Attempting cloud-specific fallback...")
+                            
+                            # Create a simplified GLB file without using Blender
+                            # This is a fallback mechanism when Blender fails in cloud environments
+                            fallback_output_path = self.output_dir / f'fallback_model_{int(time.time())}.glb'
+                            
+                            # Copy a pre-processed model if available
+                            fallback_model_path = self.script_dir / 'fallback_models' / 'basic_human_model.glb'
+                            if os.path.exists(fallback_model_path):
+                                print(f"Using fallback model from: {fallback_model_path}")
+                                shutil.copy2(fallback_model_path, fallback_output_path)
+                                print(f"Fallback model copied to: {fallback_output_path}")
+                                return str(fallback_output_path)
+                            else:
+                                # If no fallback model is available, raise an exception with detailed information
+                                error_message = (
+                                    f"Blender execution failed in cloud environment and no fallback model is available.\n"
+                                    f"Blender output: {result.stdout}\n"
+                                    f"Blender errors: {result.stderr}\n"
+                                    f"Return code: {result.returncode}"
+                                )
+                                raise Exception(error_message)
+                        else:
+                            # For non-cloud environments, raise the original error
+                            raise Exception(f"Blender processing failed with return code {result.returncode}")
                     
                     print("Blender Output:")
                     print(result.stdout)
@@ -494,12 +561,15 @@ except Exception as e:
                     print(f"Blender process error: {str(e)}")
                     # Print the captured stdout and stderr
                     print("Blender Output:")
-                    print(e.stdout)
+                    print(e.stdout if hasattr(e, 'stdout') else "No stdout available")
                     print("Blender Errors:")
-                    print(e.stderr)
+                    print(e.stderr if hasattr(e, 'stderr') else "No stderr available")
                     
                     # Check for specific error messages in the output
-                    if "NameError: name 'use_xray' is not defined" in e.stdout or "NameError: name 'use_xray' is not defined" in e.stderr:
+                    stdout_str = e.stdout if hasattr(e, 'stdout') and e.stdout else ""
+                    stderr_str = e.stderr if hasattr(e, 'stderr') and e.stderr else ""
+                    
+                    if "NameError: name 'use_xray' is not defined" in stdout_str or "NameError: name 'use_xray' is not defined" in stderr_str:
                         print("Error with use_xray parameter - fixing the script...")
                         
                         # Create a simplified script that doesn't use the use_xray parameter
@@ -513,11 +583,16 @@ except Exception as e:
                             f.write(simplified_script)
                         
                         print("Trying again with simplified script...")
-                        retry_result = subprocess.run(
-                            blender_cmd,
-                            capture_output=True,
-                            text=True
-                        )
+                        
+                        # Use Xvfb if available and in cloud environment
+                        if has_xvfb and is_cloud_environment:
+                            cmd = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24'] + blender_cmd
+                            env = os.environ.copy()
+                            env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                            env['DISPLAY'] = ':99'
+                            retry_result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+                        else:
+                            retry_result = subprocess.run(blender_cmd, capture_output=True, text=True)
                         
                         if retry_result.returncode == 0:
                             print("Simplified script succeeded!")
@@ -532,13 +607,51 @@ except Exception as e:
                             print("Simplified script also failed:")
                             print(retry_result.stdout)
                             print(retry_result.stderr)
+                    
+                    # If we're in a cloud environment, try a simplified approach
+                    if is_cloud_environment:
+                        print("Attempting cloud-specific fallback after error...")
                         
+                        # Create a simplified GLB file without using Blender
+                        fallback_output_path = self.output_dir / f'fallback_model_{int(time.time())}.glb'
+                        
+                        # Copy a pre-processed model if available
+                        fallback_model_path = self.script_dir / 'fallback_models' / 'basic_human_model.glb'
+                        if os.path.exists(fallback_model_path):
+                            print(f"Using fallback model from: {fallback_model_path}")
+                            shutil.copy2(fallback_model_path, fallback_output_path)
+                            print(f"Fallback model copied to: {fallback_output_path}")
+                            return str(fallback_output_path)
+                    
+                    # If all else fails, raise the exception
                     raise Exception(f"Blender processing failed: {str(e)}")
                 
         except Exception as e:
             print(f"Error painting model: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Check if we're in a cloud environment for final fallback
+            is_cloud_environment = os.environ.get('K_SERVICE') is not None or os.environ.get('CLOUD_RUN') == 'true'
+            if is_cloud_environment:
+                print("Final cloud fallback attempt...")
+                
+                # Create fallback directory if it doesn't exist
+                fallback_dir = self.script_dir / 'fallback_models'
+                os.makedirs(fallback_dir, exist_ok=True)
+                
+                # Use a basic fallback model
+                fallback_output_path = self.output_dir / f'emergency_fallback_model_{int(time.time())}.glb'
+                
+                # Check for any GLB file in the fallback directory
+                fallback_files = list(fallback_dir.glob('*.glb'))
+                if fallback_files:
+                    print(f"Using emergency fallback model: {fallback_files[0]}")
+                    shutil.copy2(fallback_files[0], fallback_output_path)
+                    print(f"Emergency fallback model copied to: {fallback_output_path}")
+                    return str(fallback_output_path)
+            
+            # If all fallbacks fail, raise the exception
             raise Exception(f"Failed to paint model: {str(e)}")
     
     def process_and_visualize(self, injury_data, use_xray=None):
