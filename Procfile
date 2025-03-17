@@ -1,1 +1,1 @@
-web: bash startup.sh 
+web: gunicorn render_app:app --log-file - 
