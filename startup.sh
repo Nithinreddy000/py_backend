@@ -7,6 +7,10 @@ echo "Running startup script..."
 echo "Installing dependencies..."
 pip install -r requirements.txt
 
+# Install key NLP packages explicitly
+echo "Installing NLP dependencies explicitly..."
+pip install transformers>=4.28.0
+
 # Skip the heavy import checks which were causing memory issues
 echo "Skipping import checks due to memory constraints..."
 
@@ -50,6 +54,8 @@ echo "Environment:"
 echo "- PYTHONPATH: $PYTHONPATH"
 echo "- PORT: $PORT"
 echo "- Current directory: $(pwd)"
+echo "- Python version: $(python --version)"
+echo "- Pip version: $(pip --version)"
 
 # Start the server using our simplified entry point
 echo "Starting server..."
