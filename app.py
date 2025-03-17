@@ -1126,27 +1126,7 @@ def initialize_models():
         print("Models initialized successfully")
     except Exception as e:
         print(f"Error initializing models: {e}")
-        print("Some functionality may be limited")
-        
-        # Set default values to avoid NoneType errors
-        if 'pose_model' not in globals() or pose_model is None:
-            print("Using fallback pose model...")
-            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model as fallback
-            
-        if 'jersey_detector' not in globals() or jersey_detector is None:
-            print("Using fallback object detection model...")
-            jersey_detector = pose_model  # Use pose model as fallback
-            
-        if 'reader' not in globals() or reader is None:
-            print("OCR functionality will be limited...")
-            # Create a dummy reader that returns empty results
-            class DummyReader:
-                def readtext(self, *args, **kwargs):
-                    return []
-            reader = DummyReader()
-
-# Initialize models in a background thread
-threading.Thread(target=initialize_models).start()
+        raise Exception(f"Failed to initialize required models: {e}")
 
 @app.route('/process_match_video', methods=['POST'])
 def process_match_video():

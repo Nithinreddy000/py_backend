@@ -46,13 +46,13 @@ tqdm==4.65.0
 av==10.0.0
 ffmpeg-python==0.2.0
 
-# ML libraries (optional - may skip for faster build)
-# tensorflow==2.12.0  # Commenting out to simplify build
-# torch==2.0.1
-# torchvision==0.15.2
-# mediapipe==0.10.0
-# ultralytics==8.0.20
-# supervision==0.17.0
+# ML libraries (required for video processing)
+tensorflow==2.12.0
+torch==2.0.1
+torchvision==0.15.2
+mediapipe==0.10.0
+ultralytics==8.0.20
+supervision==0.17.0
 
 # Utilities
 python-dotenv==1.0.0
