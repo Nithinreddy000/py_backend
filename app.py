@@ -19,6 +19,8 @@ import requests
 import datetime
 import shutil
 import random
+import logging
+import atexit
 
 # Add Firestore import
 from google.cloud import firestore
@@ -28,15 +30,54 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Sentry SDK Configuration
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+    logger.info("Sentry SDK not available")
+
+# Configure Sentry SDK if available
+if SENTRY_AVAILABLE:
+    try:
+        sentry_dsn = os.environ.get('SENTRY_DSN')
+        if sentry_dsn:
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                integrations=[FlaskIntegration()],
+                traces_sample_rate=0.1,
+                environment=os.environ.get('FLASK_ENV', 'production')
+            )
+            logger.info("Sentry SDK initialized successfully")
+        else:
+            # Disable Sentry if no DSN is provided
+            logger.info("Sentry DSN not provided. Sentry SDK will not be initialized.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Sentry SDK: {str(e)}")
+        # Disable Sentry completely to prevent further errors
+        try:
+            # Clear the current client
+            sentry_sdk.init("")
+            logger.error("Sentry SDK disabled due to initialization error")
+        except:
+            pass
+
+# Global variables to store state
+MODELS_LOADED = False
+STARTUP_COMPLETE = False
+CLOUDINARY_INITIALIZED = False
+
 # Configure Cloudinary with debug information
-print("Configuring Cloudinary...")
-cloudinary.config(
-    cloud_name = "ddu7ck4pg",
-    api_key = "933679325529897",
-    api_secret = "wRO_IJL4GwbesMK4X6F-WZvR5Bo",
-    secure = True
-)
-print(f"Cloudinary configuration: {cloudinary.config().cloud_name}, API Key: {cloudinary.config().api_key}")
+# Cloudinary is now configured using the initialize_cloudinary() function
+# This ensures we only initialize Cloudinary once during application startup
+# and prevents duplicate initialization messages in the logs
 
 def upload_to_cloudinary(file_path, public_id=None):
     """
@@ -50,16 +91,11 @@ def upload_to_cloudinary(file_path, public_id=None):
         str: URL of the uploaded file
     """
     try:
-        print(f"Uploading file to Cloudinary: {file_path}")
+        logger.info(f"Uploading file to Cloudinary: {file_path}")
         
-        # Set Cloudinary configuration directly in this function to ensure it uses the correct credentials
-        cloudinary.config(
-            cloud_name = "ddu7ck4pg",
-            api_key = "933679325529897",
-            api_secret = "wRO_IJL4GwbesMK4X6F-WZvR5Bo",
-            secure = True
-        )
-        print(f"Using Cloudinary config: {cloudinary.config().cloud_name}, API Key: {cloudinary.config().api_key}")
+        # Ensure Cloudinary is initialized
+        if not CLOUDINARY_INITIALIZED:
+            initialize_cloudinary()
         
         # Verify file exists and is readable
         if not os.path.exists(file_path):
@@ -69,14 +105,14 @@ def upload_to_cloudinary(file_path, public_id=None):
         if file_size == 0:
             raise ValueError(f"File is empty: {file_path}")
             
-        print(f"File exists and has size: {file_size} bytes")
+        logger.info(f"File exists and has size: {file_size} bytes")
         
         # Try to open the file to verify it's readable
         with open(file_path, 'rb') as f:
             # Read a small portion to verify it's readable
             f.read(1024)
             
-        print(f"File is readable: {file_path}")
+        logger.info(f"File is readable: {file_path}")
             
         # Set options for the upload
         options = {
@@ -89,14 +125,14 @@ def upload_to_cloudinary(file_path, public_id=None):
             options["public_id"] = public_id
             
         # Upload to Cloudinary
-        print(f"Starting Cloudinary upload with options: {options}")
+        logger.info(f"Starting Cloudinary upload with options: {options}")
         result = cloudinary.uploader.upload(file_path, **options)
-        print(f"File uploaded successfully to Cloudinary: {result['secure_url']}")
+        logger.info(f"File uploaded successfully to Cloudinary: {result['secure_url']}")
         
         # Return the URL of the uploaded file
         return result['secure_url']
     except Exception as e:
-        print(f"Error in Cloudinary upload process: {str(e)}")
+        logger.error(f"Error in Cloudinary upload process: {str(e)}")
         import traceback
         traceback.print_exc()
         # Return a fallback URL
@@ -2898,6 +2934,9 @@ def initialize_on_startup():
         
     logger.info("Starting application initialization...")
     
+    # Initialize Cloudinary first
+    initialize_cloudinary()
+    
     # Only load models if not already loaded
     if not MODELS_LOADED:
         try:
@@ -2923,39 +2962,50 @@ def cleanup_resources():
 
 atexit.register(cleanup_resources)
 
-# Add to the imports section
-try:
-    import sentry_sdk
-    from sentry_sdk.integrations.flask import FlaskIntegration
-    SENTRY_AVAILABLE = True
-except ImportError:
-    SENTRY_AVAILABLE = False
+# The Sentry SDK configuration has been moved to the top of the file
+# This section has been removed to prevent duplicate initialization
 
-# Add after the imports but before the Flask app initialization
-# Configure or disable Sentry SDK
-if SENTRY_AVAILABLE:
+# Add this as a global variable at the top level to track Cloudinary initialization
+CLOUDINARY_INITIALIZED = False
+
+# Replace the existing Cloudinary configuration with this version
+def initialize_cloudinary():
+    global CLOUDINARY_INITIALIZED
+    
+    # Only initialize once
+    if CLOUDINARY_INITIALIZED:
+        return
+        
     try:
-        sentry_dsn = os.environ.get('SENTRY_DSN')
-        if sentry_dsn:
-            sentry_sdk.init(
-                dsn=sentry_dsn,
-                integrations=[FlaskIntegration()],
-                traces_sample_rate=0.1,
-                environment=os.environ.get('FLASK_ENV', 'production')
-            )
-            logger.info("Sentry SDK initialized successfully")
+        logger.info("Configuring Cloudinary...")
+        
+        # Get configuration from environment or use defaults
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "ddu7ck4pg")
+        api_key = os.environ.get("CLOUDINARY_API_KEY", "933679325529897")
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "wRO_IJL4GwbesMK4X6F-WZvR5Bo")
+        
+        # Configure Cloudinary only once
+        cloudinary.config(
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+            secure=True
+        )
+        
+        # Test connection to verify configuration
+        test_result = cloudinary.api.ping()
+        if test_result.get('status') == 'ok':
+            logger.info(f"Cloudinary initialized successfully: {cloud_name}")
         else:
-            # Disable Sentry if no DSN is provided
-            logger.info("Sentry DSN not provided. Sentry SDK will not be initialized.")
+            logger.warning("Cloudinary ping test did not return 'ok' status")
+        
+        CLOUDINARY_INITIALIZED = True
     except Exception as e:
-        logger.error(f"Failed to initialize Sentry SDK: {str(e)}")
-        # Disable Sentry completely to prevent further errors
-        try:
-            # Clear the current client
-            sentry_sdk.init("")
-            logger.info("Sentry SDK disabled due to initialization error")
-        except:
-            pass
+        logger.error(f"Error configuring Cloudinary: {str(e)}")
+        # Continue even if Cloudinary fails - we'll handle upload failures separately
+
+# Call initialize_cloudinary at startup, not during import
+initialize_cloudinary()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 
