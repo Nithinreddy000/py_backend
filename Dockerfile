@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy requirements file first for better caching
 COPY requirements.txt .
 
-# Install required system dependencies including OpenCV dependencies and Blender
+# Install required system dependencies including OpenCV dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -18,7 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     ffmpeg \
     git \
-    blender \
     xvfb \
     xauth \
     mesa-utils \
@@ -26,7 +25,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgles2 \
     libosmesa6 \
     wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install a specific portable version of Blender (2.93 LTS) which has better compatibility
+RUN mkdir -p /opt/blender && \
+    cd /opt/blender && \
+    wget -q https://download.blender.org/release/Blender2.93/blender-2.93.13-linux-x64.tar.xz && \
+    tar -xf blender-2.93.13-linux-x64.tar.xz && \
+    rm blender-2.93.13-linux-x64.tar.xz && \
+    ln -s /opt/blender/blender-2.93.13-linux-x64/blender /usr/local/bin/blender
+
+# Set environment variables for Blender
+ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 
 # Upgrade pip and install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
@@ -56,18 +67,15 @@ ENV CORS_ENABLED=true
 ENV DISABLE_ML_MODELS=false
 ENV LAZY_LOAD_MODELS=true
 
+# Verify Blender installation
+RUN /usr/local/bin/blender --version
+
 # Expose the port
 EXPOSE 8080
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
-
-# Make the Blender installation script executable
-RUN chmod +x install_blender.sh
-
-# Verify Blender installation
-RUN blender --version
 
 # Run the application with Gunicorn with increased timeout
 CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 

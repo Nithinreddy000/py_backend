@@ -163,19 +163,27 @@ class InjuryVisualizationService:
         try:
             # Check if Blender is installed and accessible
             try:
-                blender_path = 'blender'  # Default to PATH
-                # Try to find Blender in common installation paths
-                common_paths = [
-                    r'C:\Program Files\Blender Foundation\Blender 3.6',
-                    r'C:\Program Files\Blender Foundation\Blender',
-                    '/usr/bin/blender',
-                    '/Applications/Blender.app/Contents/MacOS/Blender'
-                ]
+                # First check if Blender path is set in environment variables
+                blender_path = os.environ.get('BLENDER_PATH', 'blender')  # Default to 'blender' if not set
                 
-                for path in common_paths:
-                    if os.path.exists(os.path.join(path, 'blender.exe' if os.name == 'nt' else 'blender')):
-                        blender_path = os.path.join(path, 'blender.exe' if os.name == 'nt' else 'blender')
-                        break
+                # If environment variable not set, try to find Blender in common installation paths
+                if blender_path == 'blender':
+                    common_paths = [
+                        r'C:\Program Files\Blender Foundation\Blender 3.6',
+                        r'C:\Program Files\Blender Foundation\Blender',
+                        '/usr/bin/blender',
+                        '/usr/local/bin/blender',
+                        '/opt/blender/blender-2.93.13-linux-x64/blender',
+                        '/Applications/Blender.app/Contents/MacOS/Blender'
+                    ]
+                    
+                    for path in common_paths:
+                        if os.path.exists(os.path.join(path, 'blender.exe' if os.name == 'nt' else 'blender')):
+                            blender_path = os.path.join(path, 'blender.exe' if os.name == 'nt' else 'blender')
+                            break
+                        elif os.path.exists(path):
+                            blender_path = path
+                            break
                 
                 # Check if blender is available by running a simple command
                 try:
@@ -276,6 +284,12 @@ import sys
 import os
 import math
 
+# Configure for maximum compatibility in cloud environments
+bpy.context.preferences.view.show_developer_ui = False
+bpy.context.preferences.system.memory_cache_limit = 1024  # Limit memory usage
+bpy.context.preferences.system.use_gpu_subdivision = False
+bpy.context.preferences.system.use_cycles_debug = False
+
 # Add the current directory to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -308,138 +322,68 @@ try:
     print(f"Loading FBX from: {{fbx_path}}")
     print(f"Output will be saved to: {{output_path}}")
     
-    # Setup rendering settings for better web export
-    bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
+    # Setup rendering settings for maximum compatibility
+    bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'  # Use workbench (most compatible)
     
-    # Configure Workbench settings for better visualization with minimal settings
+    # Disable advanced features for better compatibility
     if hasattr(bpy.context.scene, 'display'):
         bpy.context.scene.display.shading.light = 'FLAT'  # Flat lighting is faster
         bpy.context.scene.display.shading.color_type = 'MATERIAL'
-        bpy.context.scene.display.shading.show_shadows = False  # Disable shadows for better performance
-        bpy.context.scene.display.shading.show_cavity = False   # Disable cavity for better performance
-        bpy.context.scene.display.shading.show_object_outline = False  # Disable outline for better performance
-        bpy.context.scene.display.shading.show_specular_highlight = False  # Disable specular for better performance
+        bpy.context.scene.display.shading.show_shadows = False
+        bpy.context.scene.display.shading.show_cavity = False
+        bpy.context.scene.display.shading.show_object_outline = False
+        bpy.context.scene.display.shading.show_specular_highlight = False
     
-    # Set up lighting for better visualization
-    # Clear existing lights first
+    # Set up basic lighting - minimum lights needed
+    # Remove all existing lights first
     for obj in bpy.data.objects:
         if obj.type == 'LIGHT':
             bpy.data.objects.remove(obj)
     
-    # Create main key light
+    # Create just one simple light
     key_light = bpy.data.lights.new(name="Key_Light", type='SUN')
-    key_light.energy = 6.0  # Stronger key light
-    key_light.use_shadow = False  # No shadows for cleaner look
+    key_light.energy = 5.0
+    key_light.use_shadow = False  # No shadows for better performance
     key_light_obj = bpy.data.objects.new("Key_Light", key_light)
     bpy.context.collection.objects.link(key_light_obj)
     key_light_obj.rotation_euler = (math.radians(45), 0, math.radians(135))
     
-    # Create fill light
-    fill_light = bpy.data.lights.new(name="Fill_Light", type='SUN')
-    fill_light.energy = 3.0  # Stronger fill light
-    fill_light.use_shadow = False
-    fill_light_obj = bpy.data.objects.new("Fill_Light", fill_light)
-    bpy.context.collection.objects.link(fill_light_obj)
-    fill_light_obj.rotation_euler = (math.radians(75), 0, math.radians(-90))
-    
-    # Create back light for rim effect
-    back_light = bpy.data.lights.new(name="Back_Light", type='SUN')
-    back_light.energy = 4.0  # Stronger back light
-    back_light.use_shadow = False
-    back_light_obj = bpy.data.objects.new("Back_Light", back_light)
-    bpy.context.collection.objects.link(back_light_obj)
-    back_light_obj.rotation_euler = (math.radians(-30), 0, math.radians(45))
-    
-    # Add a point light to highlight injuries
-    point_light = bpy.data.lights.new(name="Injury_Light", type='POINT')
-    point_light.energy = 50.0  # Very strong point light
-    point_light.use_shadow = False
-    point_light.color = (1.0, 0.9, 0.8)  # Warm light color
-    point_light_obj = bpy.data.objects.new("Injury_Light", point_light)
-    bpy.context.collection.objects.link(point_light_obj)
-    point_light_obj.location = (0, 0, 1.5)  # Position above the model
-    
-    # Create and process visualization
+    # Create visualizer and process injuries
+    print("Creating injury visualizer...")
     visualizer = InjuryVisualizer(fbx_path)
+    print("Processing injury data...")
     visualizer.process_injury_data(injury_data, use_xray)
     
-    # Configure world settings for better background
-    world = bpy.context.scene.world
-    if world is None:
-        world = bpy.data.worlds.new("World")
-        bpy.context.scene.world = world
+    # Configure world settings (simplified)
+    if bpy.context.scene.world is None:
+        bpy.context.scene.world = bpy.data.worlds.new("World")
     
-    # Set up world background color (dark blue-gray) - simplified approach
-    world.color = (0.03, 0.05, 0.10)  # Darker background
+    # Set simple background color
+    bpy.context.scene.world.color = (0.05, 0.05, 0.05)
     
-    # Set up material overrides for better transparency
-    outer_mesh_names = [
-        'Deltoid_fascia', 'Brachial_fascia', 'Antebrachial_fascia', 'Palmar_aponeurosis',
-        'Platysma', 'Pectoral_fascia', 'Investing_abdominal_fascia', 'Fascia_lata',
-        'Crural_fascia', 'subcutaneous_prepatellar_bursa', 'subcutaneous_infrapatellar_bursa',
-        'subcutaneous_bursa_of_tuberosity_of_tibia', 'superior_fibular_retinaculum',
-        'Epicranial_aponeurosis', 'Frontalis_muscle', 'Temporoparietalis_muscle',
-        'Zygomaticus_minor_muscle', 'Risorius_muscle', 'orbicularis_oris_muscle',
-        'Masseteric_fascia', 'Depressor_anguli_oris', 'Buchinator',
-        'Zygomaticus_major_muscle', 'Superficial_investing_cervical_fascia',
-        'OCcipitalis_muscle', 'Procerus_muscle', 'Dorsa_fascia_of_hand',
-        'Ilitibial_tract', 'Popliteal_fascia', 'Crucal_fascia',
-        'Subcutaneous_calcaneal_bursa',
-        # Additional important outer meshes that might be causing issues
-        'Quadriceps_fascia', 'Quadriceps_femoris_fascia', 'Femoral_fascia',
-        'Biceps_brachii_fascia', 'Arm_fascia', 'Shoulder_fascia',
-        'Quadricepsl', 'Quadricepsr', 'Bicepsl', 'Bicepsr'
-    ]
+    # Simplified outer mesh transparency code
+    outer_mesh_names = ['fascia', 'aponeurosis', 'subcutaneous']
     
     for obj in bpy.data.objects:
         if obj.type == 'MESH':
-            # First check if this is a known outer mesh by name
-            is_outer_mesh = any(outer_name.lower() in obj.name.lower() for outer_name in outer_mesh_names)
+            # First check if this is a known outer mesh by name (simplified check)
+            is_outer_mesh = any(outer_name in obj.name.lower() for outer_name in outer_mesh_names)
             
-            # If it's an outer mesh, force transparency regardless of material name
+            # Simple transparency for outer meshes
             if is_outer_mesh:
                 for slot in obj.material_slots:
                     if slot.material:
-                        mat = slot.material
-                        # Use Alpha Hashed instead of Alpha Blend (fixes sorting issues)
-                        mat.blend_method = 'HASHED'
-                        mat.shadow_method = 'NONE'
-                        mat.use_backface_culling = False
-                        mat.diffuse_color = (mat.diffuse_color[0], mat.diffuse_color[1], mat.diffuse_color[2], 0.0)
-                        print(f"Setting outer mesh {{obj.name}} material {{mat.name}} to full transparency with Alpha Hashed")
-            
-            # Process all materials, checking for injury materials
-            for slot in obj.material_slots:
-                if slot.material and 'Injury_' in slot.material.name:
-                    mat = slot.material
-                    # Ensure proper transparency settings
-                    # Use Alpha Hashed instead of Alpha Blend for better transparency
-                    mat.blend_method = 'HASHED'
-                    mat.shadow_method = 'NONE'
-                    mat.use_backface_culling = False
-                    
-                    # Check if this is an inner mesh material
-                    if 'inner' in mat.name.lower():
-                        # Make inner meshes fully visible
-                        mat.diffuse_color = (mat.diffuse_color[0], mat.diffuse_color[1], mat.diffuse_color[2], 1.0)
-                        print(f"Setting inner mesh material {{mat.name}} to full opacity")
-                    # Check if this is an outer mesh material
-                    elif 'outer' in mat.name.lower():
-                        # Make outer meshes completely transparent
-                        mat.diffuse_color = (mat.diffuse_color[0], mat.diffuse_color[1], mat.diffuse_color[2], 0.0)
-                        print(f"Setting outer mesh material {{mat.name}} to full transparency")
+                        slot.material.blend_method = 'BLEND'
+                        # Simple alpha setting
+                        if hasattr(slot.material, 'diffuse_color') and len(slot.material.diffuse_color) >= 4:
+                            slot.material.diffuse_color[3] = 0.0
     
-    # Export with enhanced GLB settings
+    # Export with simplified GLB settings
+    print("Exporting to GLB...")
     bpy.ops.export_scene.gltf(
         filepath=output_path,
         export_format='GLB',
-        use_selection=False,  # Export all objects
-        export_apply=True,    # Apply modifiers
-        export_materials='EXPORT',
-        export_colors=True,
-        export_attributes=True,
-        export_extras=True,
-        export_yup=True       # Y-up orientation for better compatibility
+        use_selection=False
     )
     
     print(f"Successfully exported model to: {{output_path}}")
@@ -481,6 +425,9 @@ except Exception as e:
                     blender_cmd = [
                         blender_path,
                         '--background',
+                        '--factory-startup',  # Use factory settings to avoid loading user preferences
+                        '--enable-autoexec',  # Enable auto execution of Python scripts
+                        '--python-use-system-env',  # Use system Python environment
                         '-f', '0',  # Force execution, ensures headless mode is enforced
                         '--python', str(temp_script_path.resolve()),  # Use resolved absolute path
                         '-noaudio'  # Disable audio to prevent potential issues
@@ -495,6 +442,11 @@ except Exception as e:
                         # Set environment variables for Blender in headless mode
                         env = os.environ.copy()
                         env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                        
+                        # Add CPU compatibility environment variables to prevent "Illegal instruction" errors
+                        env['OPENBLAS_CORETYPE'] = 'ARMV8'  # Helps with some numeric libraries
+                        env['MESA_LOADER_DRIVER_OVERRIDE'] = 'i965'  # Force Intel graphics even in cloud
+                        env['GALLIUM_DRIVER'] = 'llvmpipe'  # Use software rendering
                         
                         # Special handling for Google Cloud Run: don't set DISPLAY
                         if os.environ.get('K_SERVICE') is not None:
@@ -519,6 +471,11 @@ except Exception as e:
                             # When running in cloud environment without xvfb, set DISPLAY=:0
                             env = os.environ.copy()
                             env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                            
+                            # Add CPU compatibility environment variables to prevent "Illegal instruction" errors
+                            env['OPENBLAS_CORETYPE'] = 'ARMV8'  # Helps with some numeric libraries
+                            env['MESA_LOADER_DRIVER_OVERRIDE'] = 'i965'  # Force Intel graphics even in cloud
+                            env['GALLIUM_DRIVER'] = 'llvmpipe'  # Use software rendering
                             
                             # Special handling for Google Cloud Run: don't set DISPLAY
                             if os.environ.get('K_SERVICE') is not None:
@@ -638,6 +595,11 @@ except Exception as e:
                             # Cloud environment without xauth - try direct execution
                             env = os.environ.copy()
                             env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                            
+                            # Add CPU compatibility environment variables to prevent "Illegal instruction" errors
+                            env['OPENBLAS_CORETYPE'] = 'ARMV8'  # Helps with some numeric libraries
+                            env['MESA_LOADER_DRIVER_OVERRIDE'] = 'i965'  # Force Intel graphics even in cloud
+                            env['GALLIUM_DRIVER'] = 'llvmpipe'  # Use software rendering
                             
                             # Special handling for Google Cloud Run: don't set DISPLAY
                             if os.environ.get('K_SERVICE') is not None:
