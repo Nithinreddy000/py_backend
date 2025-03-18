@@ -462,9 +462,16 @@ except Exception as e:
                 
                 # Check if Xvfb is available for headless rendering
                 has_xvfb = False
+                has_xauth = False
                 try:
                     subprocess.run(['which', 'xvfb-run'], capture_output=True, check=True)
                     has_xvfb = True
+                    # Also check if xauth is available
+                    try:
+                        subprocess.run(['which', 'xauth'], capture_output=True, check=True)
+                        has_xauth = True
+                    except (subprocess.SubprocessError, FileNotFoundError):
+                        print("xauth not found, cannot use xvfb-run")
                     print("Xvfb is available for headless rendering")
                 except (subprocess.SubprocessError, FileNotFoundError):
                     print("Xvfb not found, will try direct Blender execution")
@@ -474,12 +481,13 @@ except Exception as e:
                     blender_cmd = [
                         blender_path,
                         '--background',
+                        '-f', '0',  # Force execution, ensures headless mode is enforced
                         '--python', str(temp_script_path.resolve()),  # Use resolved absolute path
                         '-noaudio'  # Disable audio to prevent potential issues
                     ]
                     
-                    # Use Xvfb if available and in cloud environment
-                    if has_xvfb and is_cloud_environment:
+                    # Use Xvfb if available and in cloud environment and xauth is available
+                    if has_xvfb and is_cloud_environment and has_xauth:
                         print("Using Xvfb for headless rendering in cloud environment")
                         cmd = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24'] + blender_cmd
                         print(f"Running command with Xvfb: {' '.join(cmd)}")
@@ -487,7 +495,16 @@ except Exception as e:
                         # Set environment variables for Blender in headless mode
                         env = os.environ.copy()
                         env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
-                        env['DISPLAY'] = ':99'  # Use virtual display
+                        
+                        # Special handling for Google Cloud Run: don't set DISPLAY
+                        if os.environ.get('K_SERVICE') is not None:
+                            print("Detected Google Cloud Run - running Blender without setting DISPLAY")
+                            # Remove DISPLAY if it exists
+                            if 'DISPLAY' in env:
+                                del env['DISPLAY']
+                        else:
+                            # For other cloud environments, set DISPLAY=:0
+                            env['DISPLAY'] = ':0'
                         
                         result = subprocess.run(
                             cmd,
@@ -496,13 +513,39 @@ except Exception as e:
                             env=env
                         )
                     else:
-                        # Standard execution
-                        print(f"Running Blender command: {' '.join(blender_cmd)}")
-                        result = subprocess.run(
-                            blender_cmd,
-                            capture_output=True,
-                            text=True
-                        )
+                        # Standard execution - in cloud environment without xauth, try direct execution
+                        if is_cloud_environment:
+                            print("Running in cloud environment without Xvfb (xauth not available). Using direct Blender execution.")
+                            # When running in cloud environment without xvfb, set DISPLAY=:0
+                            env = os.environ.copy()
+                            env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                            
+                            # Special handling for Google Cloud Run: don't set DISPLAY
+                            if os.environ.get('K_SERVICE') is not None:
+                                print("Detected Google Cloud Run - running Blender without setting DISPLAY")
+                                # Remove DISPLAY if it exists
+                                if 'DISPLAY' in env:
+                                    del env['DISPLAY']
+                            else:
+                                # For other cloud environments, set DISPLAY=:0
+                                env['DISPLAY'] = ':0'
+                            
+                            # Run with custom environment
+                            print(f"Running Blender command: {' '.join(blender_cmd)}")
+                            result = subprocess.run(
+                                blender_cmd,
+                                capture_output=True,
+                                text=True,
+                                env=env
+                            )
+                        else:
+                            # Standard execution for non-cloud
+                            print(f"Running Blender command: {' '.join(blender_cmd)}")
+                            result = subprocess.run(
+                                blender_cmd,
+                                capture_output=True,
+                                text=True
+                            )
                     
                     # Check if the command was successful
                     if result.returncode != 0:
@@ -585,13 +628,31 @@ except Exception as e:
                         print("Trying again with simplified script...")
                         
                         # Use Xvfb if available and in cloud environment
-                        if has_xvfb and is_cloud_environment:
+                        if has_xvfb and is_cloud_environment and has_xauth:
                             cmd = ['xvfb-run', '-a', '-s', '-screen 0 1280x720x24'] + blender_cmd
                             env = os.environ.copy()
                             env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
                             env['DISPLAY'] = ':99'
                             retry_result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+                        elif is_cloud_environment:
+                            # Cloud environment without xauth - try direct execution
+                            env = os.environ.copy()
+                            env['PYTHONPATH'] = f"{temp_dir}:{env.get('PYTHONPATH', '')}"
+                            
+                            # Special handling for Google Cloud Run: don't set DISPLAY
+                            if os.environ.get('K_SERVICE') is not None:
+                                print("Detected Google Cloud Run - running Blender without setting DISPLAY")
+                                # Remove DISPLAY if it exists
+                                if 'DISPLAY' in env:
+                                    del env['DISPLAY']
+                            else:
+                                # For other cloud environments, set DISPLAY=:0
+                                env['DISPLAY'] = ':0'
+                                
+                            print("Retrying with direct Blender execution in cloud environment")
+                            retry_result = subprocess.run(blender_cmd, capture_output=True, text=True, env=env)
                         else:
+                            # Standard execution for non-cloud
                             retry_result = subprocess.run(blender_cmd, capture_output=True, text=True)
                         
                         if retry_result.returncode == 0:
@@ -692,21 +753,22 @@ except Exception as e:
                     error_message = (
                         "Blender is required for 3D model visualization but is not installed on the server. "
                         "Please install Blender using one of the following methods:\n\n"
-                        "For Ubuntu/Debian: sudo apt update && sudo apt install -y blender\n"
-                        "For CentOS/RHEL: sudo yum install -y epel-release && sudo yum install -y blender\n"
-                        "For Docker: Add 'RUN apt-get update && apt-get install -y blender' to your Dockerfile\n\n"
+                        "For Ubuntu/Debian: sudo apt update && sudo apt install -y blender xauth\n"
+                        "For CentOS/RHEL: sudo yum install -y epel-release && sudo yum install -y blender xauth\n"
+                        "For Docker: Add 'RUN apt-get update && apt-get install -y blender xauth' to your Dockerfile\n\n"
                         "After installation, restart the application."
                     )
                     raise Exception(error_message) from blender_error
                 else:
-                    # Re-raise the original error for other issues
-                    raise
+                    # Pass through the original error
+                    raise blender_error
             
         except Exception as e:
             print(f"Error in visualization process: {str(e)}")
             import traceback
             traceback.print_exc()
-            raise Exception(f"Failed to process and visualize: {str(e)}")
+            # Pass through the original error without wrapping it
+            raise e
 
     def create_visualizer(self, model_path=None):
         """Create and return an InjuryVisualizer instance with AI-enhanced mesh detection"""
@@ -873,18 +935,47 @@ except Exception as e:
                     'model_path': painted_model_path
                 }
             except Exception as blender_error:
-                if "Blender is required" in str(blender_error) or "Blender not found" in str(blender_error) or "Blender installation failed" in str(blender_error):
-                    error_message = str(blender_error)
-                    print(f"Blender installation error: {error_message}")
+                # Handle Blender-related errors more intelligently
+                error_message = str(blender_error)
+                
+                # Common Blender error signatures
+                blender_error_signatures = [
+                    "Blender is required", 
+                    "Blender not found", 
+                    "Blender installation failed",
+                    "xauth not found", 
+                    "xvfb-run: error", 
+                    "Command '['blender"
+                ]
+                
+                if any(sig in error_message for sig in blender_error_signatures):
+                    print(f"Blender-related error: {error_message}")
+                    
+                    # Detailed message for specific error types
+                    if "xauth not found" in error_message or "xvfb-run: error: xauth command not found" in error_message:
+                        detail_message = (
+                            "The xauth command is missing. Please install it using:\n"
+                            "For Ubuntu/Debian: sudo apt-get install -y xauth\n"
+                            "For Docker: Add 'xauth' to the apt-get install line in your Dockerfile"
+                        )
+                    else:
+                        detail_message = error_message
+                    
                     return {
                         'status': 'error',
-                        'message': error_message,
-                        'error_type': 'blender_not_installed',
+                        'message': detail_message,
+                        'error_type': 'blender_execution_error',
                         'injury_data': injury_data  # Still return the processed injury data
                     }
                 else:
-                    # Re-raise for other errors
-                    raise
+                    # For other unexpected errors, pass through
+                    print(f"Unexpected error during visualization: {error_message}")
+                    return {
+                        'status': 'error',
+                        'message': f"Error during model visualization: {error_message}",
+                        'error_type': 'visualization_error',
+                        'injury_data': injury_data
+                    }
             
         except Exception as e:
             print(f"Error in visualization process: {str(e)}")

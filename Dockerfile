@@ -20,6 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     blender \
     xvfb \
+    xauth \
+    mesa-utils \
+    libgl1 \
+    libgles2 \
+    libosmesa6 \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,6 +40,9 @@ COPY . .
 
 # Create models directory if it doesn't exist
 RUN mkdir -p models/z-anatomy models/z-anatomy/output
+
+# Create fallback models directory
+RUN mkdir -p fallback_models
 
 # Create a volume for the models directory
 VOLUME /app/models
