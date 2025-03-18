@@ -161,6 +161,8 @@ class InjuryVisualizationService:
     def paint_model(self, injury_data, use_xray=None):
         """Paint the FBX model using Blender"""
         try:
+            print("Starting 3D model processing - this may take up to 2 minutes...")
+            
             # Check if Blender is installed and accessible
             try:
                 # First check if Blender path is set in environment variables
@@ -284,11 +286,17 @@ import sys
 import os
 import math
 
-# Configure for maximum compatibility in cloud environments
-bpy.context.preferences.view.show_developer_ui = False
-bpy.context.preferences.system.memory_cache_limit = 1024  # Limit memory usage
-bpy.context.preferences.system.use_gpu_subdivision = False
-bpy.context.preferences.system.use_cycles_debug = False
+# Set minimal preferences for compatibility with older Blender versions
+# Avoid using advanced features that may not be available in all versions
+try:
+    bpy.context.preferences.view.show_developer_ui = False
+except AttributeError:
+    print("Could not set show_developer_ui preference - ignoring")
+
+try:
+    bpy.context.preferences.system.memory_cache_limit = 1024  # Limit memory usage
+except AttributeError:
+    print("Could not set memory_cache_limit preference - ignoring")
 
 # Add the current directory to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -322,19 +330,16 @@ try:
     print(f"Loading FBX from: {{fbx_path}}")
     print(f"Output will be saved to: {{output_path}}")
     
-    # Setup rendering settings for maximum compatibility
-    bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'  # Use workbench (most compatible)
+    # Use the most basic rendering settings that work across all Blender versions
+    try:
+        # This should work in Blender 2.8+
+        bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
+    except Exception:
+        # Fallback for older versions
+        print("Could not set render engine to BLENDER_WORKBENCH, using default")
     
-    # Disable advanced features for better compatibility
-    if hasattr(bpy.context.scene, 'display'):
-        bpy.context.scene.display.shading.light = 'FLAT'  # Flat lighting is faster
-        bpy.context.scene.display.shading.color_type = 'MATERIAL'
-        bpy.context.scene.display.shading.show_shadows = False
-        bpy.context.scene.display.shading.show_cavity = False
-        bpy.context.scene.display.shading.show_object_outline = False
-        bpy.context.scene.display.shading.show_specular_highlight = False
-    
-    # Set up basic lighting - minimum lights needed
+    # Use only the most basic settings that should work in all Blender versions
+    # Set up basic lighting with minimal settings
     # Remove all existing lights first
     for obj in bpy.data.objects:
         if obj.type == 'LIGHT':
@@ -343,7 +348,6 @@ try:
     # Create just one simple light
     key_light = bpy.data.lights.new(name="Key_Light", type='SUN')
     key_light.energy = 5.0
-    key_light.use_shadow = False  # No shadows for better performance
     key_light_obj = bpy.data.objects.new("Key_Light", key_light)
     bpy.context.collection.objects.link(key_light_obj)
     key_light_obj.rotation_euler = (math.radians(45), 0, math.radians(135))
@@ -354,39 +358,44 @@ try:
     print("Processing injury data...")
     visualizer.process_injury_data(injury_data, use_xray)
     
-    # Configure world settings (simplified)
-    if bpy.context.scene.world is None:
-        bpy.context.scene.world = bpy.data.worlds.new("World")
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Set simple background color
-    bpy.context.scene.world.color = (0.05, 0.05, 0.05)
-    
-    # Simplified outer mesh transparency code
-    outer_mesh_names = ['fascia', 'aponeurosis', 'subcutaneous']
-    
-    for obj in bpy.data.objects:
-        if obj.type == 'MESH':
-            # First check if this is a known outer mesh by name (simplified check)
-            is_outer_mesh = any(outer_name in obj.name.lower() for outer_name in outer_mesh_names)
-            
-            # Simple transparency for outer meshes
-            if is_outer_mesh:
-                for slot in obj.material_slots:
-                    if slot.material:
-                        slot.material.blend_method = 'BLEND'
-                        # Simple alpha setting
-                        if hasattr(slot.material, 'diffuse_color') and len(slot.material.diffuse_color) >= 4:
-                            slot.material.diffuse_color[3] = 0.0
-    
-    # Export with simplified GLB settings
+    # Export with minimal settings
     print("Exporting to GLB...")
-    bpy.ops.export_scene.gltf(
-        filepath=output_path,
-        export_format='GLB',
-        use_selection=False
-    )
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=output_path,
+            export_format='GLB'
+        )
+    except Exception as export_error:
+        print(f"Error with default export: {{str(export_error)}}")
+        # Try minimal export params
+        try:
+            bpy.ops.export_scene.gltf(
+                filepath=output_path
+            )
+        except Exception as minimal_error:
+            print(f"Error with minimal export: {{str(minimal_error)}}")
+            # Last resort - try to save as a Blender file
+            print("Trying to save as .blend file instead...")
+            blend_path = output_path.replace('.glb', '.blend')
+            bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+            print(f"Saved .blend file to {{blend_path}}")
     
-    print(f"Successfully exported model to: {{output_path}}")
+    # Verify file was created
+    if os.path.exists(output_path):
+        print(f"Successfully exported model to: {{output_path}}")
+        print(f"File size: {{os.path.getsize(output_path)}} bytes")
+    else:
+        print(f"WARNING: Export appears to have failed, {{output_path}} not found")
+        # Check if we saved a .blend file instead
+        blend_path = output_path.replace('.glb', '.blend')
+        if os.path.exists(blend_path):
+            print(f"But .blend file was saved to {{blend_path}}")
+            # Manually note that we need to convert the .blend file
+            print("BLEND_FILE_CREATED=1")
     
 except Exception as e:
     print(f"Error in Blender script: {{str(e)}}")
@@ -512,33 +521,7 @@ except Exception as e:
                         print("Blender Errors:")
                         print(result.stderr)
                         
-                        # If we're in a cloud environment, try a simplified approach
-                        if is_cloud_environment:
-                            print("Attempting cloud-specific fallback...")
-                            
-                            # Create a simplified GLB file without using Blender
-                            # This is a fallback mechanism when Blender fails in cloud environments
-                            fallback_output_path = self.output_dir / f'fallback_model_{int(time.time())}.glb'
-                            
-                            # Copy a pre-processed model if available
-                            fallback_model_path = self.script_dir / 'fallback_models' / 'basic_human_model.glb'
-                            if os.path.exists(fallback_model_path):
-                                print(f"Using fallback model from: {fallback_model_path}")
-                                shutil.copy2(fallback_model_path, fallback_output_path)
-                                print(f"Fallback model copied to: {fallback_output_path}")
-                                return str(fallback_output_path)
-                            else:
-                                # If no fallback model is available, raise an exception with detailed information
-                                error_message = (
-                                    f"Blender execution failed in cloud environment and no fallback model is available.\n"
-                                    f"Blender output: {result.stdout}\n"
-                                    f"Blender errors: {result.stderr}\n"
-                                    f"Return code: {result.returncode}"
-                                )
-                                raise Exception(error_message)
-                        else:
-                            # For non-cloud environments, raise the original error
-                            raise Exception(f"Blender processing failed with return code {result.returncode}")
+                        raise Exception(f"Blender process failed with return code {result.returncode}")
                     
                     print("Blender Output:")
                     print(result.stdout)
@@ -547,6 +530,11 @@ except Exception as e:
                         print("Blender Errors:")
                         print(result.stderr)
                 
+                    # Check for "BLEND_FILE_CREATED" in the output
+                    # This indicates that the GLB export failed but a .blend file was created
+                    blend_file_created = "BLEND_FILE_CREATED=1" in result.stdout
+                    blend_path = str(output_path).replace('.glb', '.blend')
+                    
                     # Verify the output file was created
                     if os.path.exists(output_path):
                         file_size = os.path.getsize(output_path)
@@ -554,8 +542,67 @@ except Exception as e:
                         if file_size == 0:
                             raise Exception("Output file was created but is empty")
                         return str(output_path)
-                    else:
-                        raise Exception(f"Output file was not created at {output_path}")
+                    elif blend_file_created and os.path.exists(blend_path):
+                        print(f"GLB export failed but .blend file was created at: {blend_path}")
+                        # Try to convert the .blend file to GLB using a simpler approach
+                        print("Attempting to convert .blend file to GLB...")
+                        converted_output_path = self.output_dir / f'converted_model_{int(time.time())}.glb'
+                        
+                        # We'll use a simpler Blender command to just load and export the file
+                        conversion_script = f"""
+import bpy
+import sys
+
+try:
+    # Load the blend file
+    bpy.ops.wm.open_mainfile(filepath="{blend_path}")
+    
+    # Export to GLB with minimal settings
+    bpy.ops.export_scene.gltf(filepath="{converted_output_path}", export_format='GLB')
+    
+    print(f"Successfully converted to GLB: {converted_output_path}")
+except Exception as e:
+    print(f"Error converting .blend to GLB: {str(e)}")
+    sys.exit(1)
+"""
+                        # Save conversion script to a temporary file
+                        with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as temp_file:
+                            temp_script_path = temp_file.name
+                            temp_file.write(conversion_script)
+                        
+                        try:
+                            # Run Blender to convert the file
+                            conversion_cmd = [
+                                blender_path,
+                                '--background',
+                                '--factory-startup',
+                                '--python', temp_script_path
+                            ]
+                            
+                            print(f"Running conversion command: {' '.join(conversion_cmd)}")
+                            conv_result = subprocess.run(
+                                conversion_cmd,
+                                capture_output=True,
+                                text=True
+                            )
+                            
+                            print("Conversion Output:")
+                            print(conv_result.stdout)
+                            
+                            if conv_result.stderr:
+                                print("Conversion Errors:")
+                                print(conv_result.stderr)
+                            
+                            # Check if the conversion was successful
+                            if os.path.exists(converted_output_path):
+                                return str(converted_output_path)
+                        except Exception as conv_error:
+                            print(f"Error during conversion: {str(conv_error)}")
+                        finally:
+                            # Clean up temporary script
+                            os.unlink(temp_script_path)
+                    
+                    raise Exception(f"Output file was not created at {output_path}")
                 
                 except subprocess.CalledProcessError as e:
                     print(f"Blender process error: {str(e)}")
@@ -631,7 +678,7 @@ except Exception as e:
                             print(retry_result.stdout)
                             print(retry_result.stderr)
                     
-                    # If we're in a cloud environment, try a simplified approach
+                    # If all else fails, raise the exception
                     if is_cloud_environment:
                         print("Attempting cloud-specific fallback after error...")
                         
@@ -646,7 +693,6 @@ except Exception as e:
                             print(f"Fallback model copied to: {fallback_output_path}")
                             return str(fallback_output_path)
                     
-                    # If all else fails, raise the exception
                     raise Exception(f"Blender processing failed: {str(e)}")
                 
         except Exception as e:
@@ -680,6 +726,7 @@ except Exception as e:
     def process_and_visualize(self, injury_data, use_xray=None):
         """Process injury data and generate 3D visualization"""
         try:
+            print("Starting 3D injury visualization process - this may take up to 2 minutes...")
             print(f"Processing injury data: {injury_data}")
             print(f"X-ray visualization: {use_xray if use_xray is not None else 'Using default from config'}")
             
@@ -824,7 +871,8 @@ except Exception as e:
     def process_and_visualize_from_pdf(self, pdf_path, use_xray=None):
         """Main function to process PDF and visualize injuries"""
         try:
-            print(f"Starting visualization process for PDF: {pdf_path}")
+            print("Starting PDF processing and 3D visualization - this may take up to 2 minutes...")
+            print(f"Processing PDF: {pdf_path}")
             print(f"X-ray visualization: {use_xray if use_xray is not None else 'Using default from config'}")
             
             # Step 1: Process PDF and extract injury data
