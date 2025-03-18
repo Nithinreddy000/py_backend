@@ -1126,49 +1126,51 @@ reader = None
 jersey_mapping_cache = {}
 
 def initialize_models():
-    global pose_model, jersey_detector, reader
+    """Initialize machine learning models and cache them in memory"""
+    global pose_model, jersey_detector, reader, MODELS_LOADED
     
-    # Check if ML models are disabled via environment variable
+    # Don't reload models if they're already loaded
+    if MODELS_LOADED:
+        logger.info("Models already loaded, skipping initialization")
+        return
+    
+    # Check if we should disable ML models
     if os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true':
-        print("ML models are disabled via environment variable")
+        logger.info("ML models disabled by configuration, using mock implementations")
         pose_model = None
         jersey_detector = None
         reader = None
+        MODELS_LOADED = True
         return
     
     # Check if we should lazy load models
     lazy_load = os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true'
-    if lazy_load:
-        print("ML models will be lazy loaded when needed")
+    
+    try:
+        logger.info("Initializing Jersey Detector...")
+        jersey_detector = JerseyDetector()
+        logger.info("Jersey Detector initialized successfully")
+        
+        if not lazy_load:
+            logger.info("Initializing YOLO model...")
+            if YOLO_AVAILABLE:
+                model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'yolov8l-pose.pt')
+                pose_model = YOLO(model_path)
+                logger.info("YOLO model loaded successfully")
+            else:
+                logger.warning("YOLO not available, using mock implementation")
+                pose_model = None
+        else:
+            logger.info("Lazy loading enabled, YOLO model will be loaded on first use")
+            pose_model = None
+            
+    except Exception as e:
+        logger.error(f"Error initializing models: {str(e)}")
         pose_model = None
         jersey_detector = None
         reader = None
-        return
     
-    try:
-        print("Initializing YOLOv8 models and OCR...")
-        
-        # Get the directory where the script is located
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-        # Initialize YOLOv8 pose model
-        model_path = os.path.join(current_dir, "yolov8x-pose.pt")
-        if os.path.exists(model_path):
-            pose_model = YOLO(model_path)
-        else:
-            print(f"Warning: Pose model not found at {model_path}, downloading from ultralytics...")
-            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model to save time
-    
-        # Initialize YOLOv8 object detection model for jersey detection
-        jersey_detector = YOLO("yolov8n.pt")
-    
-        # Initialize OCR reader for jersey numbers
-        reader = easyocr.Reader(['en'])
-    
-        print("Models initialized successfully")
-    except Exception as e:
-        print(f"Error initializing models: {e}")
-        raise Exception(f"Failed to initialize required models: {e}")
+    MODELS_LOADED = True
 
 # Initialize models in a background thread if not lazy loading
 if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
@@ -2846,6 +2848,54 @@ def fallback_cors_headers(response):
         response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
         
     return response
+
+# Add this at the top with the other imports
+import logging
+import atexit
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Global variables to store loaded models
+MODELS_LOADED = False
+STARTUP_COMPLETE = False
+
+# Initialize models at startup instead of per request
+@app.before_first_request
+def initialize_on_startup():
+    global MODELS_LOADED, STARTUP_COMPLETE
+    
+    if STARTUP_COMPLETE:
+        return
+        
+    logger.info("Starting application initialization...")
+    
+    # Only load models if not already loaded
+    if not MODELS_LOADED:
+        try:
+            logger.info("Initializing ML models...")
+            initialize_models()
+            MODELS_LOADED = True
+            logger.info("ML models initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing models: {str(e)}")
+            logger.error("Will use fallback methods for processing")
+    
+    # Set environment variable to avoid TensorFlow optimization warnings
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+    
+    # Mark startup as complete
+    STARTUP_COMPLETE = True
+    logger.info("Application initialization complete")
+
+# Register cleanup function
+def cleanup_resources():
+    logger.info("Cleaning up application resources...")
+    # Any cleanup code here (releasing GPU memory, closing connections, etc.)
+
+atexit.register(cleanup_resources)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

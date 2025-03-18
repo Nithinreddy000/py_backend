@@ -58,14 +58,25 @@ RUN mkdir -p fallback_models
 # Create a volume for the models directory
 VOLUME /app/models
 
-# Set environment variables
+# Set environment variables for optimizing TensorFlow and model loading
+ENV TF_ENABLE_ONEDNN_OPTS=0
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV TF_FORCE_GPU_ALLOW_GROWTH=true
+ENV LAZY_LOAD_MODELS=false
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 ENV FLASK_APP=app.py
 ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
 ENV DISABLE_ML_MODELS=false
-ENV LAZY_LOAD_MODELS=true
+
+# Create cache directories for models
+RUN mkdir -p /root/.cache/torch
+RUN mkdir -p /root/.cache/pip
+
+# Download YOLOv8 models during build to prevent downloading at runtime
+RUN pip install --no-cache-dir ultralytics && \
+    python -c "from ultralytics import YOLO; YOLO('yolov8l-pose.pt')" || echo "Model will be downloaded at runtime"
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
