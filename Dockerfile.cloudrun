@@ -1,0 +1,97 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Copy requirements file first for better caching
+COPY requirements.txt .
+
+# Install required system dependencies including OpenCV dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libffi-dev \
+    curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    ffmpeg \
+    git \
+    xvfb \
+    xauth \
+    mesa-utils \
+    libgl1 \
+    libgles2 \
+    libosmesa6 \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install a specific portable version of Blender (2.93 LTS) which has better compatibility
+RUN mkdir -p /opt/blender && \
+    cd /opt/blender && \
+    wget -q https://download.blender.org/release/Blender2.93/blender-2.93.13-linux-x64.tar.xz && \
+    tar -xf blender-2.93.13-linux-x64.tar.xz && \
+    rm blender-2.93.13-linux-x64.tar.xz && \
+    ln -s /opt/blender/blender-2.93.13-linux-x64/blender /usr/local/bin/blender
+
+# Set environment variables for Blender
+ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
+
+# Upgrade pip and install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Fix for ultralytics settings directory issue
+RUN mkdir -p /root/.config/ultralytics && \
+    echo "{}" > /root/.config/ultralytics/settings.yaml && \
+    chmod 644 /root/.config/ultralytics/settings.yaml && \
+    mkdir -p /.config/ultralytics && \
+    echo "{}" > /.config/ultralytics/settings.yaml && \
+    chmod 777 /.config && \
+    chmod 777 /.config/ultralytics && \
+    chmod 666 /.config/ultralytics/settings.yaml && \
+    mkdir -p /home/root/.config/ultralytics && \
+    echo "{}" > /home/root/.config/ultralytics/settings.yaml && \
+    chmod 777 /home/root && \
+    chmod 777 /home/root/.config && \
+    chmod 777 /home/root/.config/ultralytics && \
+    chmod 666 /home/root/.config/ultralytics/settings.yaml
+
+# Set environment variable for ultralytics settings
+ENV ULTRALYTICS_CONFIG_DIR=/root/.config/ultralytics
+ENV PYTHONPATH=/app
+
+# Install python dependencies
+RUN pip install --no-cache-dir -r requirements.txt && \
+    python -m spacy download en_core_web_sm
+
+# Copy the application
+COPY . .
+
+# Verify ultralytics can be imported
+RUN python -c "import yaml; yaml.safe_dump({}, open('/root/.config/ultralytics/settings.yaml', 'w')); print('Settings file created')" && \
+    python -c "import ultralytics; print('Ultralytics imported successfully')"
+
+# Create required directories
+RUN mkdir -p models/z-anatomy models/z-anatomy/output fallback_models
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8080 \
+    FLASK_APP=cloud_run_app.py \
+    FLASK_DEBUG=0 \
+    CORS_ENABLED=true \
+    DISABLE_ML_MODELS=true \
+    LAZY_LOAD_MODELS=true
+
+# Expose the port
+EXPOSE 8080
+
+# Add healthcheck
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/cloud-run-health || exit 1
+
+# Run the Cloud Run specific app with gunicorn
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 300 cloud_run_app:app 
