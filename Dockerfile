@@ -78,4 +78,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Run the application with Gunicorn with increased timeout
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 
+CMD gunicorn --bind 0.0.0.0:$PORT \
+    --workers 2 \
+    --threads 8 \
+    --timeout 600 \
+    --graceful-timeout 300 \
+    --keep-alive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --worker-class gthread \
+    --log-level info \
+    app:app 

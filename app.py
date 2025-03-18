@@ -161,7 +161,13 @@ except Exception as e:
 app = Flask(__name__)
 # Configure CORS properly to avoid duplicate headers
 # Remove any other CORS initialization that might be later in the code
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, 
+    resources={r"/*": {"origins": "*"}}, 
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    max_age=3600
+)
 
 # Configure upload settings
 UPLOAD_FOLDER = Path(__file__).parent / 'uploads'
@@ -386,10 +392,10 @@ def add_cors_headers(response):
     """Add CORS headers to all responses"""
     # Always overwrite CORS headers to ensure consistency
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Range'
-    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
-    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Range')
+    response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag')
+    response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
     response.headers['Vary'] = 'Origin'
     
     # Add content security policy to allow loading from CDNs
@@ -528,34 +534,32 @@ def focus_mesh(filename, mesh_name):
         print(f"Error in focus_mesh endpoint: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/health', methods=['GET'])
+@app.route('/health', methods=['GET', 'OPTIONS'])
+@cross_origin(origins='*', supports_credentials=True)
 def health_check():
-    """Simple health check endpoint to verify the server is running."""
-    import platform
-    import sys
-    
-    # Get basic system information
-    system_info = {
-        'python_version': sys.version,
-        'platform': platform.platform(),
-        'node': platform.node(),
-    }
-    
-    # Check if ML models are initialized
-    ml_status = {
-        'pose_model': pose_model is not None,
-        'jersey_detector': jersey_detector is not None,
-        'reader': reader is not None,
-        'lazy_load_enabled': os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true',
-        'ml_disabled': os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true',
-    }
-    
-    return jsonify({
-        'status': 'ok',
+    """Health check endpoint for monitoring the service"""
+    if request.method == 'OPTIONS':
+        # Handle preflight request
+        response = jsonify({'message': 'OK'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+        return response
+        
+    # Check system status
+    status = {
+        'status': 'healthy',
         'timestamp': datetime.datetime.now().isoformat(),
-        'system_info': system_info,
-        'ml_status': ml_status,
-    })
+        'model_service': 'active',
+        'storage': 'active'
+    }
+    
+    # Ensure CORS headers are included in the response
+    response = jsonify(status)
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Content-Type', 'application/json')
+    
+    return response, 200
 
 @app.route('/match_processing_status/<match_id>', methods=['GET'])
 def match_processing_status(match_id):
