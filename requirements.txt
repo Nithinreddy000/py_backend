@@ -6,6 +6,7 @@ gunicorn==20.1.0
 flask-restful==0.3.9
 uvicorn==0.21.1
 fastapi==0.109.2
+blinker==1.6.2  # Required for Sentry SDK's Flask integration
 
 # PDF/Document processing
 pdfplumber==0.9.0

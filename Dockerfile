@@ -41,7 +41,8 @@ ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 
 # Upgrade pip and install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir blinker==1.6.2
 
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
