@@ -257,78 +257,65 @@ class AnatomicalAIService:
         return []
     
     def _gemini_based_matching(self, prompt: str, available_meshes: List[str]) -> List[str]:
-        """Use Google Gemini to find matching meshes via direct REST API call."""
+        """Use Google Gemini API to find matching meshes."""
         try:
-            import requests
+            # Call the generate method
+            gemini_response = self.gemini_generate(prompt)
             
-            # Prepare the API request
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
-            
-            # Prepare the request payload
-            payload = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            }
-            
-            # Set headers
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            # Make the API request
-            print(f"Making direct REST API call to Gemini API with key: {self.api_key[:4]}...")
-            response = requests.post(url, json=payload, headers=headers)
-            
-            # Check if the request was successful
-            if response.status_code == 200:
-                # Parse the response
-                response_json = response.json()
+            # Find JSON array in the response
+            import re
+            json_match = re.search(r'\[.*\]', gemini_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                matches = json.loads(json_str)
                 
-                # Extract the content
-                if 'candidates' in response_json and len(response_json['candidates']) > 0:
-                    candidate = response_json['candidates'][0]
-                    if 'content' in candidate and 'parts' in candidate['content']:
-                        parts = candidate['content']['parts']
-                        if len(parts) > 0 and 'text' in parts[0]:
-                            content = parts[0]['text']
-                            
-                            # Extract the JSON array from the response
-                            try:
-                                # Find JSON array in the response
-                                import re
-                                json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                                if json_match:
-                                    json_str = json_match.group(0)
-                                    matches = json.loads(json_str)
-                                    
-                                    # Validate that all returned meshes are in the original list
-                                    valid_matches = [mesh for mesh in matches if mesh in available_meshes]
-                                    
-                                    if valid_matches:
-                                        print(f"Gemini API found {len(valid_matches)} matching meshes")
-                                        return valid_matches
-                                    else:
-                                        print("Gemini API returned matches, but none were in the available meshes list")
-                                else:
-                                    print("Could not find JSON array in Gemini API response")
-                            except json.JSONDecodeError:
-                                print(f"Failed to parse JSON from Gemini API response: {content}")
-                            except Exception as e:
-                                print(f"Error processing Gemini API response: {str(e)}")
-                        else:
-                            print("No text found in Gemini API response parts")
-                    else:
-                        print("No content or parts found in Gemini API response candidate")
+                # Validate that all returned meshes are in the original list
+                valid_matches = [mesh for mesh in matches if mesh in available_meshes]
+                
+                if valid_matches:
+                    print(f"Gemini AI found {len(valid_matches)} matching meshes")
+                    return valid_matches
                 else:
-                    print("No candidates found in Gemini API response")
+                    print("Gemini AI returned matches, but none were in the available meshes list")
             else:
-                print(f"Gemini API request failed with status code {response.status_code}: {response.text}")
-        
+                print("No valid JSON array found in Gemini response")
+            
+            return []
         except Exception as e:
-            print(f"Error using Gemini API: {str(e)}")
+            print(f"Error using Gemini AI for matching: {str(e)}")
+            return []
+    
+    def gemini_generate(self, prompt: str) -> str:
+        """
+        Generate text using Google Gemini API.
         
-        return []
+        Args:
+            prompt: The prompt to send to Gemini
+            
+        Returns:
+            String response from Gemini
+        """
+        try:
+            # Import the module here to avoid issues if it's not installed
+            import google.generativeai as genai
+            
+            # Configure the API
+            genai.configure(api_key=self.api_key)
+            
+            # Get default model
+            model = genai.GenerativeModel('gemini-pro')
+            
+            # Generate the response
+            response = model.generate_content(prompt)
+            
+            # Return the text
+            return response.text
+        except ImportError:
+            print("ERROR: google-generativeai package is not installed. Please install it with: pip install google-generativeai")
+            raise Exception("google-generativeai package is not installed")
+        except Exception as e:
+            print(f"Error using Gemini for generation: {str(e)}")
+            raise Exception(f"Error using Gemini for generation: {str(e)}")
     
     def _local_fallback_matching(self, body_part: str, available_meshes: List[str], 
                                side: Optional[str] = None) -> List[str]:

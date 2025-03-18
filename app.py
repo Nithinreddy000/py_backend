@@ -129,12 +129,29 @@ except ImportError:
     torch = MockTorch()
 
 try:
+    # Fix for ultralytics settings issue - create settings dir and file before import
+    import os
+    import yaml
+    settings_dir = os.path.expanduser('~/.config/ultralytics')
+    settings_file = os.path.join(settings_dir, 'settings.yaml')
+    
+    if not os.path.exists(settings_dir):
+        os.makedirs(settings_dir, exist_ok=True)
+        
+    if not os.path.exists(settings_file):
+        with open(settings_file, 'w') as f:
+            yaml.safe_dump({}, f)
+    
+    # Now import YOLO after ensuring settings file exists
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
 except ImportError:
     print("YOLO not available. Using mock implementations.")
     YOLO_AVAILABLE = False
-    
+except Exception as e:
+    print(f"Error importing YOLO: {e}")
+    YOLO_AVAILABLE = False
+
 try:
     import supervision as sv
     SUPERVISION_AVAILABLE = True
@@ -202,12 +219,12 @@ def analyze_injury():
                 'error': 'Missing required fields. Please provide description, body_part, and severity'
             }), 400
             
-        description = data['description']
+        description = data['description'] or "No description available"
         body_part = data['body_part']
         severity = data['severity']
         side = data.get('side', '')
         
-        print(f"Analyzing injury: {body_part} - {description}")
+        print(f"Analyzing injury: {body_part} {side} - {description}")
         
         # Format the prompt for Gemini
         prompt = f"""
@@ -248,32 +265,29 @@ def analyze_injury():
                     
                     # Validate the result
                     if all(key in result for key in ['recovery_progress', 'estimated_recovery_time', 'recommended_treatment']):
-                        # Ensure recovery_progress is a number between 0-100
-                        result['recovery_progress'] = max(0, min(100, int(result['recovery_progress'])))
                         return jsonify(result), 200
-                    else:
-                        raise ValueError("Incomplete JSON response from Gemini")
                         
-                # Fallback calculation if JSON parsing fails
-                print("JSON response parsing failed, using fallback calculation")
+                # If we get here, either JSON parsing failed or the response was invalid
+                print(f"Invalid Gemini response format. Using fallback calculation.")
+                # Fall back to simple calculation
                 result = _calculate_fallback_recovery(severity)
                 return jsonify(result), 200
                 
             except Exception as e:
-                print(f"Error using Gemini for analysis: {e}")
-                # Fallback if Gemini fails
+                print(f"Error using Gemini for analysis: {str(e)}")
+                # Fall back to simple calculation
                 result = _calculate_fallback_recovery(severity)
                 return jsonify(result), 200
         else:
-            # Fallback calculation if no AI service
-            print("No AI service available, using fallback calculation")
+            print("AnatomicalAIService not available. Using fallback calculation.")
+            # Fall back to simple calculation if no AI service
             result = _calculate_fallback_recovery(severity)
             return jsonify(result), 200
             
     except Exception as e:
-        print(f"Error in injury analysis: {e}")
+        print(f"Error in analyze_injury: {str(e)}")
         return jsonify({
-            'error': f'Failed to analyze injury: {str(e)}'
+            'error': f'An error occurred while analyzing the injury: {str(e)}'
         }), 500
 
 def _calculate_fallback_recovery(severity):

@@ -43,11 +43,19 @@ ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Create ultralytics settings directory and initialize settings to fix the 'NoneType has no attribute keys' error
+RUN mkdir -p /root/.config/ultralytics && \
+    echo "{}" > /root/.config/ultralytics/settings.yaml && \
+    chmod 644 /root/.config/ultralytics/settings.yaml
+
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
 # Copy the rest of the application
 COPY . .
+
+# Make the run script executable
+RUN chmod +x run.sh
 
 # Create models directory if it doesn't exist
 RUN mkdir -p models/z-anatomy models/z-anatomy/output
@@ -77,5 +85,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run the application with Gunicorn with increased timeout
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 
+# Run the application using our run script instead of directly calling gunicorn
+CMD ["./run.sh"] 
