@@ -13,8 +13,21 @@ export LAZY_LOAD_MODELS=false
 export CORS_ENABLED=true
 export PYTHONUNBUFFERED=1
 
+# Disable Sentry by setting an empty DSN
+export SENTRY_DSN=""
+
 # Find the Gunicorn process
 GUNICORN_PID=$(pgrep -f gunicorn)
+
+# Create necessary directories
+mkdir -p models/yolo models/z-anatomy models/z-anatomy/output
+mkdir -p fallback_models
+
+# Install correct ultralytics version if needed
+if ! python -c "from ultralytics import YOLO" 2>/dev/null; then
+  echo "Installing compatible ultralytics version..."
+  pip install ultralytics==8.0.196
+fi
 
 if [ -z "$GUNICORN_PID" ]; then
   echo "No Gunicorn process found. Starting with fixed settings..."

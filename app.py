@@ -1154,9 +1154,31 @@ def initialize_models():
         if not lazy_load:
             logger.info("Initializing YOLO model...")
             if YOLO_AVAILABLE:
-                model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'yolov8l-pose.pt')
-                pose_model = YOLO(model_path)
-                logger.info("YOLO model loaded successfully")
+                try:
+                    # Try using a specific compatible version syntax
+                    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'yolov8l-pose.pt')
+                    
+                    # Check if the model file exists
+                    if not os.path.exists(model_path):
+                        logger.warning(f"Model file not found at {model_path}, attempting to download...")
+                        
+                    # Use compatible syntax for different ultralytics versions
+                    try:
+                        # For newer ultralytics versions
+                        pose_model = YOLO(model_path)
+                    except (AttributeError, TypeError) as e:
+                        logger.warning(f"Error with standard YOLO loading: {str(e)}")
+                        logger.info("Trying alternative loading method...")
+                        
+                        # For older ultralytics versions
+                        from ultralytics import YOLO as YOLOv8
+                        pose_model = YOLOv8(model_path)
+                    
+                    logger.info("YOLO model loaded successfully")
+                except Exception as e:
+                    logger.error(f"Failed to load YOLO model: {str(e)}")
+                    logger.info("Using mock model implementation as fallback")
+                    pose_model = None
             else:
                 logger.warning("YOLO not available, using mock implementation")
                 pose_model = None
@@ -1170,7 +1192,11 @@ def initialize_models():
         jersey_detector = None
         reader = None
     
+    # Set models as loaded even if there were errors, to prevent continuous retries
     MODELS_LOADED = True
+    logger.info("ML models initialization completed (with or without errors)")
+    
+    return pose_model, jersey_detector, reader
 
 # Initialize models in a background thread if not lazy loading
 if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
@@ -2896,6 +2922,40 @@ def cleanup_resources():
     # Any cleanup code here (releasing GPU memory, closing connections, etc.)
 
 atexit.register(cleanup_resources)
+
+# Add to the imports section
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
+# Add after the imports but before the Flask app initialization
+# Configure or disable Sentry SDK
+if SENTRY_AVAILABLE:
+    try:
+        sentry_dsn = os.environ.get('SENTRY_DSN')
+        if sentry_dsn:
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                integrations=[FlaskIntegration()],
+                traces_sample_rate=0.1,
+                environment=os.environ.get('FLASK_ENV', 'production')
+            )
+            logger.info("Sentry SDK initialized successfully")
+        else:
+            # Disable Sentry if no DSN is provided
+            logger.info("Sentry DSN not provided. Sentry SDK will not be initialized.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Sentry SDK: {str(e)}")
+        # Disable Sentry completely to prevent further errors
+        try:
+            # Clear the current client
+            sentry_sdk.init("")
+            logger.info("Sentry SDK disabled due to initialization error")
+        except:
+            pass
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

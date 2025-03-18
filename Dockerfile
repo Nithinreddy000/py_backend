@@ -74,9 +74,9 @@ ENV DISABLE_ML_MODELS=false
 RUN mkdir -p /root/.cache/torch
 RUN mkdir -p /root/.cache/pip
 
-# Download YOLOv8 models during build to prevent downloading at runtime
-RUN pip install --no-cache-dir ultralytics && \
-    python -c "from ultralytics import YOLO; YOLO('yolov8l-pose.pt')" || echo "Model will be downloaded at runtime"
+# Install a specific compatible version of ultralytics
+RUN pip install --no-cache-dir ultralytics==8.0.196 && \
+    python -c "from ultralytics import YOLO; print('YOLO import successful')" || echo "YOLO test import failed - will retry during runtime"
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
