@@ -128,80 +128,13 @@ except ImportError:
     
     torch = MockTorch()
 
-# Initialize ultralytics settings before any import attempts
-# This must happen at the module level to ensure it runs before any imports
-import os
-import json
-import yaml
-from pathlib import Path
-
-# Define all possible config locations
-config_paths = [
-    Path.home() / '.config' / 'ultralytics',  # Standard user home
-    Path('/root/.config/ultralytics'),        # Docker root user
-    Path('/.config/ultralytics'),             # Alternative Docker location
-]
-
-# Try to create settings in all locations to be thorough
-for config_path in config_paths:
-    try:
-        config_path.mkdir(parents=True, exist_ok=True)
-        settings_file = config_path / 'settings.yaml'
-        
-        # Create settings file if it doesn't exist
-        if not settings_file.exists():
-            with open(settings_file, 'w') as f:
-                yaml.safe_dump({}, f)
-            print(f"Created ultralytics settings file at {settings_file}")
-        
-        # Also create as JSON just to be sure (some versions might try to read JSON instead)
-        json_settings = config_path / 'settings.json'
-        if not json_settings.exists():
-            with open(json_settings, 'w') as f:
-                json.dump({}, f)
-            print(f"Created ultralytics JSON settings file at {json_settings}")
-            
-        # Ensure directories are accessible
-        os.chmod(str(config_path), 0o777)
-        if os.path.exists(str(settings_file)):
-            os.chmod(str(settings_file), 0o666)
-        if os.path.exists(str(json_settings)):
-            os.chmod(str(json_settings), 0o666)
-            
-    except Exception as e:
-        print(f"Notice: Could not create ultralytics settings at {config_path}: {e}")
-
-# Now try to import YOLO after all the settings initialization
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
-    print("Successfully imported ultralytics YOLO")
-except ImportError as e:
-    print(f"YOLO not available: {e}")
+except ImportError:
+    print("YOLO not available. Using mock implementations.")
     YOLO_AVAILABLE = False
-except Exception as e:
-    print(f"Error importing YOLO: {e}")
-    # Try one more approach - modify the ultralytics.__init__ code
-    try:
-        # First import the module to get its location
-        import ultralytics
-        print(f"Ultralytics found at: {ultralytics.__file__}")
-        
-        # Try to monkeypatch the settings loading
-        import types
-        def get_settings_override():
-            return {}  # Return empty dict as default settings
-            
-        ultralytics.yolo.utils.get_settings = get_settings_override
-        
-        # Now try to import YOLO again
-        from ultralytics import YOLO
-        YOLO_AVAILABLE = True
-        print("Successfully imported ultralytics YOLO after monkeypatching")
-    except Exception as inner_e:
-        print(f"Final attempt to import YOLO failed: {inner_e}")
-        YOLO_AVAILABLE = False
-
+    
 try:
     import supervision as sv
     SUPERVISION_AVAILABLE = True
