@@ -45,6 +45,12 @@ def verify_ultralytics():
     """Verify ultralytics installation and model loading."""
     print_header("Checking ultralytics")
     
+    # Check compatible torch version for ultralytics 8.0.196
+    torch_ok = check_package_version("torch", exact_version="1.13.1")
+    if not torch_ok:
+        print("⚠️  PyTorch version needs to be 1.13.1 for compatibility with ultralytics 8.0.196")
+        print("Consider reinstalling: pip install torch==1.13.1 torchvision==0.14.1 --force-reinstall")
+    
     if not check_package_version("ultralytics", exact_version="8.0.196"):
         print("Consider reinstalling: pip install ultralytics==8.0.196 --force-reinstall")
     
@@ -61,20 +67,36 @@ def verify_ultralytics():
             os.makedirs(model_dir, exist_ok=True)
             print(f"Created directory {model_dir}")
         
-        # Try to load models
-        print("\nAttempting to load YOLOv8n model...")
-        try:
-            model = YOLO("yolov8n.pt")
-            print(f"✅ Successfully loaded {model}")
-        except Exception as e:
-            print(f"❌ Failed to load YOLOv8n: {str(e)}")
+        # Try to load models directly from file path, avoiding ultralytics model loading API
+        # if there are compatibility issues
+        print("\nChecking for model files...")
+        models = ["yolov8n.pt", "yolov8n-pose.pt"]
+        for model_name in models:
+            model_path = model_dir / model_name
+            if model_path.exists():
+                try:
+                    model_size = model_path.stat().st_size / (1024 * 1024)  # Size in MB
+                    print(f"✅ Found {model_name} ({model_size:.1f} MB)")
+                except Exception as e:
+                    print(f"⚠️  Error checking {model_name}: {str(e)}")
+            else:
+                print(f"❌ Model file not found: {model_path}")
         
-        print("\nAttempting to load YOLOv8n-pose model...")
-        try:
-            pose_model = YOLO("yolov8n-pose.pt")
-            print(f"✅ Successfully loaded {pose_model}")
-        except Exception as e:
-            print(f"❌ Failed to load YOLOv8n-pose: {str(e)}")
+        print("\nAttempting to load models with YOLO...")
+        if torch_ok:
+            try:
+                # Only attempt to load models if torch is compatible
+                import torch
+                model = YOLO("yolov8n.pt")
+                print(f"✅ Successfully loaded {model}")
+                
+                pose_model = YOLO("yolov8n-pose.pt")
+                print(f"✅ Successfully loaded {pose_model}")
+            except Exception as e:
+                print(f"❌ Failed to load models via YOLO API: {str(e)}")
+                print("  This may be due to PyTorch/ultralytics version compatibility issues.")
+        else:
+            print("⚠️  Skipping model loading with YOLO API due to PyTorch version compatibility issues")
             
     except ImportError as e:
         print(f"❌ Failed to import YOLO: {str(e)}")
@@ -100,14 +122,38 @@ def verify_easyocr():
             print(f"❌ Model directory {model_dir} does not exist")
             os.makedirs(model_dir, exist_ok=True)
             print(f"Created directory {model_dir}")
+        else:
+            # Check if directory has files
+            files = list(model_dir.glob('*'))
+            if len(files) > 0:
+                print(f"✅ Found {len(files)} files in model directory")
+                for f in files[:5]:  # Show first 5 files
+                    try:
+                        size = f.stat().st_size / (1024 * 1024)  # Size in MB
+                        print(f"  - {f.name} ({size:.1f} MB)")
+                    except Exception as e:
+                        print(f"  - {f.name} (error getting size: {str(e)})")
+                if len(files) > 5:
+                    print(f"  ... and {len(files) - 5} more files")
+            else:
+                print("⚠️  Model directory exists but is empty")
         
-        # Try to load reader
-        print("\nAttempting to initialize EasyOCR Reader (this may take some time)...")
-        try:
-            reader = easyocr.Reader(['en'], model_storage_directory=str(model_dir), download_enabled=True)
-            print("✅ Successfully initialized EasyOCR Reader")
-        except Exception as e:
-            print(f"❌ Failed to initialize EasyOCR Reader: {str(e)}")
+        # Try to load reader only if directory has files
+        if model_dir.exists() and len(list(model_dir.glob('*'))) > 0:
+            print("\nAttempting to initialize EasyOCR Reader (this may take some time)...")
+            try:
+                reader = easyocr.Reader(['en'], model_storage_directory=str(model_dir), download_enabled=False)
+                print("✅ Successfully initialized EasyOCR Reader")
+            except Exception as e:
+                print(f"❌ Failed to initialize EasyOCR Reader: {str(e)}")
+                print("  Trying again with download_enabled=True...")
+                try:
+                    reader = easyocr.Reader(['en'], model_storage_directory=str(model_dir), download_enabled=True)
+                    print("✅ Successfully initialized EasyOCR Reader with downloads enabled")
+                except Exception as e2:
+                    print(f"❌ Still failed to initialize EasyOCR Reader: {str(e2)}")
+        else:
+            print("\n⚠️  Skipping EasyOCR Reader initialization as model directory is empty or missing")
             
     except ImportError as e:
         print(f"❌ Failed to import EasyOCR: {str(e)}")
@@ -144,6 +190,17 @@ def verify_blender():
             for path in common_paths:
                 if os.path.exists(path):
                     print(f"ℹ️  Blender found at alternative location: {path}")
+                    
+                    # Try to get version
+                    try:
+                        version_result = subprocess.run([path, '--version'], capture_output=True, text=True)
+                        if version_result.returncode == 0:
+                            print(f"Blender version info: {version_result.stdout.strip()}")
+                        else:
+                            print(f"⚠️  Could not get Blender version: {version_result.stderr}")
+                    except Exception as e:
+                        print(f"⚠️  Error checking Blender version: {str(e)}")
+                        
                     break
     except Exception as e:
         print(f"❌ Error checking Blender: {str(e)}")

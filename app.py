@@ -597,6 +597,144 @@ def health_check():
     
     return response, 200
 
+@app.route('/health/details', methods=['GET'])
+@cross_origin(origins='*', supports_credentials=True)
+def detailed_health_check():
+    """Detailed health check endpoint for monitoring the service and its components"""
+    import os
+    import sys
+    import platform
+    import psutil
+    import pkg_resources
+    from datetime import datetime, timedelta
+    
+    try:
+        # Basic health info
+        health_info = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'uptime': str(timedelta(seconds=int(time.time() - psutil.boot_time()))),
+            'environment': os.environ.get('FLASK_ENV', 'production')
+        }
+        
+        # System information
+        system_info = {
+            'os': platform.system(),
+            'os_version': platform.version(),
+            'python_version': sys.version,
+            'hostname': platform.node(),
+            'cpu_count': psutil.cpu_count(),
+            'memory_total': f"{psutil.virtual_memory().total / (1024 * 1024 * 1024):.2f} GB",
+            'memory_available': f"{psutil.virtual_memory().available / (1024 * 1024 * 1024):.2f} GB",
+            'disk_usage': f"{psutil.disk_usage('/').percent}%"
+        }
+        
+        # Model information
+        model_info = {}
+        
+        # YOLO models
+        try:
+            yolo_path = os.environ.get('YOLO_MODEL_PATH', '/root/.config/ultralytics/models')
+            yolo_models = ['yolov8n.pt', 'yolov8n-pose.pt']
+            yolo_status = {}
+            
+            for model_name in yolo_models:
+                model_path = os.path.join(yolo_path, model_name)
+                if os.path.exists(model_path):
+                    size_mb = os.path.getsize(model_path) / (1024 * 1024)
+                    yolo_status[model_name] = {
+                        'available': True,
+                        'size': f"{size_mb:.2f} MB",
+                        'path': model_path,
+                        'last_modified': datetime.fromtimestamp(os.path.getmtime(model_path)).isoformat()
+                    }
+                else:
+                    yolo_status[model_name] = {'available': False}
+            
+            model_info['yolo'] = {
+                'status': 'loaded' if global_yolo_model is not None else 'not_loaded',
+                'models': yolo_status
+            }
+        except Exception as e:
+            model_info['yolo'] = {'status': 'error', 'error': str(e)}
+        
+        # EasyOCR models
+        try:
+            easyocr_path = os.environ.get('EASYOCR_MODULE_PATH', '/app/models/easyocr')
+            if os.path.exists(easyocr_path):
+                files = os.listdir(easyocr_path)
+                model_info['easyocr'] = {
+                    'status': 'available',
+                    'path': easyocr_path,
+                    'files_count': len(files),
+                    'files': files[:5] + ['...'] if len(files) > 5 else files
+                }
+            else:
+                model_info['easyocr'] = {'status': 'directory_not_found'}
+        except Exception as e:
+            model_info['easyocr'] = {'status': 'error', 'error': str(e)}
+        
+        # Blender check
+        try:
+            import subprocess
+            blender_result = subprocess.run(['which', 'blender'], capture_output=True, text=True)
+            if blender_result.returncode == 0:
+                blender_path = blender_result.stdout.strip()
+                version_result = subprocess.run([blender_path, '--version'], capture_output=True, text=True)
+                model_info['blender'] = {
+                    'status': 'available',
+                    'path': blender_path,
+                    'version': version_result.stdout.strip() if version_result.returncode == 0 else 'unknown'
+                }
+            else:
+                model_info['blender'] = {'status': 'not_found'}
+        except Exception as e:
+            model_info['blender'] = {'status': 'error', 'error': str(e)}
+        
+        # Dependencies versions
+        dependencies = {
+            'flask': 'unknown',
+            'torch': 'unknown',
+            'torchvision': 'unknown',
+            'ultralytics': 'unknown',
+            'easyocr': 'unknown',
+            'numpy': 'unknown',
+            'opencv-python': 'unknown',
+            'gunicorn': 'unknown',
+            'cloudinary': 'unknown',
+            'sentry-sdk': 'unknown',
+            'blinker': 'unknown'
+        }
+        
+        for package in dependencies.keys():
+            try:
+                version = pkg_resources.get_distribution(package).version
+                dependencies[package] = version
+            except:
+                pass
+        
+        # Combine all information
+        detailed_status = {
+            'health': health_info,
+            'system': system_info,
+            'models': model_info,
+            'dependencies': dependencies
+        }
+        
+        # Ensure CORS headers are included in the response
+        response = jsonify(detailed_status)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Content-Type', 'application/json')
+        
+        return response, 200
+    except Exception as e:
+        error_response = {
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }
+        return jsonify(error_response), 500
+
 @app.route('/match_processing_status/<match_id>', methods=['GET'])
 def match_processing_status(match_id):
     """

@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ams-backend:latest
+    container_name: ams-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - YOLO_MODEL_PATH=/root/.config/ultralytics/models
+      - EASYOCR_MODULE_PATH=/app/models/easyocr
+      - CUDA_VISIBLE_DEVICES=-1  # Disable GPU usage
+      - TRANSFORMERS_CACHE=/app/models/transformers
+      - FLASK_ENV=production
+      - GUNICORN_WORKERS=2
+      - GUNICORN_THREADS=4
+      - GUNICORN_TIMEOUT=300
+      - MAX_CONTENT_LENGTH=50000000  # 50MB upload limit
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./blender_files:/app/blender_files
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+    command: >
+      gunicorn --bind 0.0.0.0:5000 
+      --workers ${GUNICORN_WORKERS:-2} 
+      --threads ${GUNICORN_THREADS:-4} 
+      --timeout ${GUNICORN_TIMEOUT:-300} 
+      --access-logfile /app/logs/gunicorn-access.log 
+      --error-logfile /app/logs/gunicorn-error.log 
+      --log-level info
+      --worker-tmp-dir /dev/shm
+      --preload
+      "app:app"
+
+  # Optional Nginx service for production
+  nginx:
+    image: nginx:1.21-alpine
+    container_name: ams-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx/www:/var/www/html
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  models:
+  data:
+  logs:
+  blender_files: 

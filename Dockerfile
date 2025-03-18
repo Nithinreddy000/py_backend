@@ -50,21 +50,16 @@ RUN python -m spacy download en_core_web_sm
 # Create directories for models
 RUN mkdir -p models/yolo models/z-anatomy models/z-anatomy/output fallback_models
 
-# Install specific compatible version of ultralytics for pose models
-RUN pip install --no-cache-dir ultralytics==8.0.196 --force-reinstall
+# Install specific compatible versions of torch and ultralytics
+RUN pip install --no-cache-dir torch==1.13.1 torchvision==0.14.1 --force-reinstall && \
+    pip install --no-cache-dir ultralytics==8.0.196 --force-reinstall
 
-# Pre-download YOLO models to avoid runtime downloads
-RUN echo "Downloading YOLO pose model..." && \
-    python -c "from ultralytics import YOLO; model = YOLO('yolov8n-pose.pt'); print(f'Successfully loaded {model}')" && \
-    python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); print(f'Successfully loaded {model}')" && \
-    mkdir -p /root/.config/ultralytics && \
-    chmod -R 777 /root/.config/ultralytics
+# Copy the download_models.py script first to pre-download models
+COPY download_models.py /app/
 
-# Pre-download EasyOCR models to avoid runtime downloads
-RUN echo "Downloading EasyOCR models..." && \
-    python -c "import easyocr; reader = easyocr.Reader(['en'], model_storage_directory='/app/models/easyocr', download_enabled=True); print('EasyOCR models downloaded successfully')" && \
-    mkdir -p /root/.EasyOCR && \
-    chmod -R 777 /root/.EasyOCR
+# Pre-download models using our custom script
+RUN chmod +x /app/download_models.py && \
+    python /app/download_models.py
 
 # Copy the rest of the application
 COPY . .

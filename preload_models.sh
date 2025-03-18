@@ -20,19 +20,20 @@ chmod -R 777 /root/.config/ultralytics
 chmod -R 777 /root/.EasyOCR
 chmod -R 777 /app/models
 
-# Install the correct version of ultralytics that supports pose models
-echo "Installing compatible version of ultralytics..."
+# Install the correct compatible versions of PyTorch and ultralytics
+echo "Installing compatible versions of PyTorch and ultralytics..."
+pip install torch==1.13.1 torchvision==0.14.1 --force-reinstall
 pip install ultralytics==8.0.196 --force-reinstall
 
 # Download YOLO models if not already downloaded
 if [ ! -f "/root/.config/ultralytics/models/yolov8n-pose.pt" ]; then
   echo "Downloading YOLO pose model..."
-  python -c "from ultralytics import YOLO; model = YOLO('yolov8n-pose.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO pose model"
+  python -c "import torch; from ultralytics import YOLO; model = YOLO('yolov8n-pose.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO pose model"
 fi
 
 if [ ! -f "/root/.config/ultralytics/models/yolov8n.pt" ]; then
   echo "Downloading YOLO detection model..."
-  python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO detection model"
+  python -c "import torch; from ultralytics import YOLO; model = YOLO('yolov8n.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO detection model"
 fi
 
 # Download EasyOCR models if not already downloaded
