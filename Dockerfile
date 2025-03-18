@@ -47,14 +47,24 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
+# Create directories for models
+RUN mkdir -p models/yolo models/z-anatomy models/z-anatomy/output fallback_models
+
+# Pre-download YOLO models to avoid runtime downloads
+RUN echo "Downloading YOLO pose model..." && \
+    python -c "from ultralytics import YOLO; YOLO('yolov8n-pose.pt')" && \
+    python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" && \
+    mkdir -p /root/.config/ultralytics && \
+    chmod -R 777 /root/.config/ultralytics
+
+# Pre-download EasyOCR models to avoid runtime downloads
+RUN echo "Downloading EasyOCR models..." && \
+    python -c "import easyocr; reader = easyocr.Reader(['en'], model_storage_directory='/app/models/easyocr', download_enabled=True)" && \
+    mkdir -p /root/.EasyOCR && \
+    chmod -R 777 /root/.EasyOCR
+
 # Copy the rest of the application
 COPY . .
-
-# Create models directory if it doesn't exist
-RUN mkdir -p models/z-anatomy models/z-anatomy/output
-
-# Create fallback models directory
-RUN mkdir -p fallback_models
 
 # Create a volume for the models directory
 VOLUME /app/models
@@ -71,13 +81,13 @@ ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
 ENV DISABLE_ML_MODELS=false
 
+# Point to pre-downloaded models
+ENV EASYOCR_MODULE_PATH=/app/models/easyocr
+ENV YOLO_MODEL_PATH=/root/.config/ultralytics/models
+
 # Create cache directories for models
 RUN mkdir -p /root/.cache/torch
 RUN mkdir -p /root/.cache/pip
-
-# Install a specific compatible version of ultralytics
-RUN pip install --no-cache-dir ultralytics==8.0.196 && \
-    python -c "from ultralytics import YOLO; print('YOLO import successful')" || echo "YOLO test import failed - will retry during runtime"
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
