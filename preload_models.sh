@@ -20,21 +20,25 @@ chmod -R 777 /root/.config/ultralytics
 chmod -R 777 /root/.EasyOCR
 chmod -R 777 /app/models
 
+# Install the correct version of ultralytics that supports pose models
+echo "Installing compatible version of ultralytics..."
+pip install ultralytics==8.0.196 --force-reinstall
+
 # Download YOLO models if not already downloaded
 if [ ! -f "/root/.config/ultralytics/models/yolov8n-pose.pt" ]; then
   echo "Downloading YOLO pose model..."
-  python -c "from ultralytics import YOLO; YOLO('yolov8n-pose.pt')" || echo "Failed to download YOLO pose model"
+  python -c "from ultralytics import YOLO; model = YOLO('yolov8n-pose.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO pose model"
 fi
 
 if [ ! -f "/root/.config/ultralytics/models/yolov8n.pt" ]; then
   echo "Downloading YOLO detection model..."
-  python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" || echo "Failed to download YOLO detection model"
+  python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); print(f'Successfully loaded {model}')" || echo "Failed to download YOLO detection model"
 fi
 
 # Download EasyOCR models if not already downloaded
 if [ ! -d "/app/models/easyocr" ] || [ -z "$(ls -A /app/models/easyocr)" ]; then
   echo "Downloading EasyOCR models..."
-  python -c "import easyocr; reader = easyocr.Reader(['en'], model_storage_directory='/app/models/easyocr', download_enabled=True)" || echo "Failed to download EasyOCR models"
+  python -c "import easyocr; reader = easyocr.Reader(['en'], model_storage_directory='/app/models/easyocr', download_enabled=True); print('EasyOCR models downloaded successfully')" || echo "Failed to download EasyOCR models"
 fi
 
 # Set environment variables for the models

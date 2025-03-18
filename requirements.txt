@@ -53,7 +53,7 @@ tensorflow-cpu==2.12.0
 torch==1.13.1
 torchvision==0.14.1
 mediapipe==0.10.5
-ultralytics==8.0.20
+ultralytics==8.0.196  # Updated to specific version that supports pose models
 supervision==0.11.1
 
 # Utilities
