@@ -62,7 +62,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     # Install specific version of ultralytics known to be compatible with pose models
     pip install --no-cache-dir ultralytics==8.0.196 && \
     # Install specific version of easyocr
-    pip install --no-cache-dir easyocr==1.6.2
+    pip install --no-cache-dir easyocr==1.6.2 && \
+    # Set env var to prevent auto-download
+    echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
+    # Add the missing imports for model initialization
+    pip install importlib_metadata pkg_resources
 
 # Install FFmpeg directly from default repositories
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -126,77 +130,49 @@ RUN for i in 1 2 3; do \
       fi; \
     done
 
-# Download EasyOCR models with multiple mirrors and strict verification
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+# Install EasyOCR models - FIXED VERSION with direct S3 URLs not GitHub
+RUN apt-get update && \
+    # Install curl for reliable downloads
+    apt-get install -y curl && \
+    # Create the model directory
     mkdir -p /app/models && \
-    # Use curl with retry for more reliable downloads
-    echo "Downloading EasyOCR models with curl (WILL NOT CONTINUE WITHOUT SUCCESSFUL DOWNLOAD)" && \
-    # Download craft_mlt_25k.pth with multiple attempts and mirrors
-    ( \
-      for i in $(seq 1 10); do \
-        echo "Attempt $i for craft_mlt_25k.pth" && \
-        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
-          -o /app/models/craft_mlt_25k.pth \
-          https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth && \
-        if [ -s /app/models/craft_mlt_25k.pth ]; then \
-          echo "Successfully downloaded craft_mlt_25k.pth" && \
-          break; \
-        fi; \
-        # Try alternative mirrors if main URL fails
-        echo "Trying alternative mirror for craft_mlt_25k.pth" && \
-        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
-          -o /app/models/craft_mlt_25k.pth \
-          https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/craft_mlt_25k.pth && \
-        if [ -s /app/models/craft_mlt_25k.pth ]; then \
-          echo "Successfully downloaded craft_mlt_25k.pth from mirror" && \
-          break; \
-        fi; \
-        sleep 10; \
-      done \
-    ) && \
-    # Download english_g2.pth with multiple attempts
-    ( \
-      for i in $(seq 1 10); do \
-        echo "Attempt $i for english_g2.pth" && \
-        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
-          -o /app/models/english_g2.pth \
-          https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth && \
-        if [ -s /app/models/english_g2.pth ]; then \
-          echo "Successfully downloaded english_g2.pth" && \
-          break; \
-        fi; \
-        # Try alternative mirrors if main URL fails
-        echo "Trying alternative mirror for english_g2.pth" && \
-        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
-          -o /app/models/english_g2.pth \
-          https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/english_g2.pth && \
-        if [ -s /app/models/english_g2.pth ]; then \
-          echo "Successfully downloaded english_g2.pth from mirror" && \
-          break; \
-        fi; \
-        sleep 10; \
-      done \
-    ) && \
-    # Final verification - will fail build if models aren't found
+    # Download EasyOCR models from S3 directly
+    curl -L -o /app/models/craft_mlt_25k.pth https://easyocr.s3.us-east-2.amazonaws.com/craft_mlt_25k.pth && \
+    curl -L -o /app/models/english_g2.pth https://easyocr.s3.us-east-2.amazonaws.com/english_g2.pth && \
+    # Verify models exist and aren't empty
+    ls -la /app/models/ && \
+    echo "craft_mlt_25k.pth size: $(stat -c %s /app/models/craft_mlt_25k.pth)" && \
+    echo "english_g2.pth size: $(stat -c %s /app/models/english_g2.pth)" && \
+    # If either model is missing or empty, fail the build
     if [ ! -s /app/models/craft_mlt_25k.pth ] || [ ! -s /app/models/english_g2.pth ]; then \
-      echo "ERROR: Failed to download EasyOCR models after multiple attempts." && \
-      echo "craft_mlt_25k.pth size: $(stat -c %s /app/models/craft_mlt_25k.pth 2>/dev/null || echo 'not found')" && \
-      echo "english_g2.pth size: $(stat -c %s /app/models/english_g2.pth 2>/dev/null || echo 'not found')" && \
+      echo "ERROR: EasyOCR models failed to download. Build failed!" && \
       exit 1; \
     fi && \
-    echo "EasyOCR models downloaded successfully:" && \
-    ls -la /app/models/ && \
+    # Clean up
     apt-get remove -y curl && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Install a specific portable version of Blender (2.93 LTS) which has better compatibility
-RUN mkdir -p /opt/blender && \
-    cd /opt/blender && \
-    wget -q https://download.blender.org/release/Blender2.93/blender-2.93.13-linux-x64.tar.xz && \
-    tar -xf blender-2.93.13-linux-x64.tar.xz && \
-    rm blender-2.93.13-linux-x64.tar.xz && \
-    ln -s /opt/blender/blender-2.93.13-linux-x64/blender /usr/local/bin/blender
+# Create a script to install Blender if it's missing
+RUN echo '#!/bin/bash\n\
+echo "Installing Blender..."\n\
+apt-get update\n\
+apt-get install -y blender\n\
+if ! command -v blender &> /dev/null; then\n\
+  echo "Failed to install Blender using apt, trying alternative download"\n\
+  apt-get install -y wget xz-utils\n\
+  cd /tmp\n\
+  wget -q https://download.blender.org/release/Blender3.6/blender-3.6.1-linux-x64.tar.xz\n\
+  tar -xf blender-3.6.1-linux-x64.tar.xz\n\
+  mv blender-3.6.1-linux-x64 /opt/blender\n\
+  ln -s /opt/blender/blender /usr/local/bin/blender\n\
+  rm blender-3.6.1-linux-x64.tar.xz\n\
+  apt-get remove -y wget xz-utils\n\
+  apt-get autoremove -y\n\
+fi\n\
+echo "Blender installation complete"\n\
+blender --version\n\
+' > /app/install_blender.sh && chmod +x /app/install_blender.sh
 
 # Set environment variables for Blender
 ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
@@ -216,10 +192,11 @@ RUN chmod +x preload_models.py
 COPY optimized_ffmpeg.py ./
 RUN chmod +x optimized_ffmpeg.py
 
-# Set environment variables to prevent any runtime downloads
-ENV ULTRALYTICS_CACHE_DIR=/app/models
+# Set environment variables to avoid downloads during runtime
 ENV ULTRALYTICS_NO_DOWNLOAD=true
-ENV EASYOCR_NO_RUNTIME_DOWNLOAD=true
+ENV EASYOCR_DOWNLOAD_ENABLED=False
+# Set app model directories
+ENV ULTRALYTICS_CACHE_DIR=/app/models
 ENV EASYOCR_MODEL_DIR=/app/models
 
 # Create minimal script to test model loading and initialize them properly

@@ -217,6 +217,84 @@ def preload_easyocr():
         print("Continuing build process despite model verification failure")
         return False
 
+def is_placeholder_file(file_path):
+    """Check if a file is a placeholder based on its content."""
+    try:
+        # Check if file is small (placeholders should be less than 1KB)
+        if os.path.getsize(file_path) < 1024:
+            with open(file_path, 'r', errors='ignore') as f:
+                content = f.read(100)  # Read first 100 chars
+                # Check if it contains the placeholder text
+                if "placeholder" in content.lower() or "this is a placeholder" in content.lower():
+                    print(f"Detected placeholder file: {file_path}")
+                    return True
+        return False
+    except:
+        return False
+
+def download_and_verify_models():
+    """Download models if they don't exist or are placeholders, and verify their integrity."""
+    models = [
+        ("craft_mlt_25k.pth", "EasyOCR detection model"),
+        ("english_g2.pth", "EasyOCR recognition model"),
+        ("yolov8n.pt", "YOLOv8 nano model"),
+        ("yolov8n.onnx", "YOLOv8 nano ONNX model")
+    ]
+    
+    missing_models = []
+    placeholder_models = []
+    
+    # Check for missing or placeholder models
+    for model_file, description in models:
+        model_path = os.path.join(MODEL_DIR, model_file)
+        if not os.path.exists(model_path):
+            print(f"Missing model: {description} ({model_file})")
+            missing_models.append(model_file)
+        elif is_placeholder_file(model_path):
+            print(f"Found placeholder for {description} ({model_file})")
+            placeholder_models.append(model_file)
+    
+    # If we have missing or placeholder models, try to download them
+    if missing_models or placeholder_models:
+        models_to_download = missing_models + placeholder_models
+        print(f"Attempting to download {len(models_to_download)} missing or placeholder models...")
+        
+        for model_file in models_to_download:
+            if model_file in MODEL_URLS:
+                try:
+                    model_path = os.path.join(MODEL_DIR, model_file)
+                    url = MODEL_URLS[model_file]
+                    print(f"Downloading {model_file} from {url}...")
+                    
+                    # Try to download the model
+                    if not download_file(url, model_path):
+                        print(f"Failed to download {model_file}")
+                    else:
+                        print(f"Successfully downloaded {model_file}")
+                except Exception as e:
+                    print(f"Error downloading {model_file}: {str(e)}")
+            else:
+                print(f"No URL available for {model_file}")
+    
+    # Check again for missing or placeholder models
+    still_missing = []
+    still_placeholder = []
+    
+    for model_file, description in models:
+        model_path = os.path.join(MODEL_DIR, model_file)
+        if not os.path.exists(model_path):
+            still_missing.append(model_file)
+        elif is_placeholder_file(model_path):
+            still_placeholder.append(model_file)
+    
+    if still_missing:
+        print(f"WARNING: Still missing models after download attempts: {', '.join(still_missing)}")
+    
+    if still_placeholder:
+        print(f"WARNING: Still using placeholder models after download attempts: {', '.join(still_placeholder)}")
+    
+    return len(still_missing) == 0 and len(still_placeholder) == 0
+
 def main():
     """Main function to verify all models are pre-downloaded."""
     print("Starting model verification process...")
@@ -271,4 +349,9 @@ def main():
         return 0
 
 if __name__ == "__main__":
-    main() 
+    # Check models on startup
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    if not download_and_verify_models():
+        print("Some models are missing or using placeholders, but continuing with available models.")
+    else:
+        print("All models verified and available.") 
