@@ -126,56 +126,69 @@ RUN for i in 1 2 3; do \
       fi; \
     done
 
-# Directly download EasyOCR models during build with multiple mirrors
-RUN mkdir -p /app/models && \
-    # Define multiple mirror URLs for each model file
-    echo "Attempting to download EasyOCR models from multiple mirrors..." && \
-    # Array of mirrors for craft_mlt_25k.pth
-    for mirror in \
-        "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth" \
-        "https://raw.githubusercontent.com/JaidedAI/EasyOCR/master/easyocr/model/craft_mlt_25k.pth" \
-        "https://github.com/JaidedAI/EasyOCR/blob/master/easyocr/model/craft_mlt_25k.pth?raw=true" \
-        "https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/craft_mlt_25k.pth" \
-    ; do \
-        echo "Trying mirror: $mirror" && \
-        if wget --no-check-certificate --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/craft_mlt_25k.pth "$mirror" && [ -s /app/models/craft_mlt_25k.pth ]; then \
-            echo "Successfully downloaded craft_mlt_25k.pth" && \
-            break; \
-        else \
-            echo "Mirror failed, trying next one..." && \
-            sleep 2; \
+# Download EasyOCR models with multiple mirrors and strict verification
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    mkdir -p /app/models && \
+    # Use curl with retry for more reliable downloads
+    echo "Downloading EasyOCR models with curl (WILL NOT CONTINUE WITHOUT SUCCESSFUL DOWNLOAD)" && \
+    # Download craft_mlt_25k.pth with multiple attempts and mirrors
+    ( \
+      for i in $(seq 1 10); do \
+        echo "Attempt $i for craft_mlt_25k.pth" && \
+        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
+          -o /app/models/craft_mlt_25k.pth \
+          https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth && \
+        if [ -s /app/models/craft_mlt_25k.pth ]; then \
+          echo "Successfully downloaded craft_mlt_25k.pth" && \
+          break; \
         fi; \
-    done && \
-    # Array of mirrors for english_g2.pth
-    for mirror in \
-        "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth" \
-        "https://raw.githubusercontent.com/JaidedAI/EasyOCR/master/easyocr/model/english_g2.pth" \
-        "https://github.com/JaidedAI/EasyOCR/blob/master/easyocr/model/english_g2.pth?raw=true" \
-        "https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/english_g2.pth" \
-    ; do \
-        echo "Trying mirror: $mirror" && \
-        if wget --no-check-certificate --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/english_g2.pth "$mirror" && [ -s /app/models/english_g2.pth ]; then \
-            echo "Successfully downloaded english_g2.pth" && \
-            break; \
-        else \
-            echo "Mirror failed, trying next one..." && \
-            sleep 2; \
+        # Try alternative mirrors if main URL fails
+        echo "Trying alternative mirror for craft_mlt_25k.pth" && \
+        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
+          -o /app/models/craft_mlt_25k.pth \
+          https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/craft_mlt_25k.pth && \
+        if [ -s /app/models/craft_mlt_25k.pth ]; then \
+          echo "Successfully downloaded craft_mlt_25k.pth from mirror" && \
+          break; \
         fi; \
-    done && \
-    # Verify that both files were downloaded successfully
-    if [ -s /app/models/craft_mlt_25k.pth ] && [ -s /app/models/english_g2.pth ]; then \
-        echo "EasyOCR models downloaded successfully" && \
-        ls -la /app/models/; \
-    else \
-        # If direct download failed, try to create placeholder files
-        echo "Failed to download EasyOCR models from all mirrors." && \
-        echo "Creating placeholder files and will download them at runtime." && \
-        mkdir -p /app/models && \
-        touch /app/models/craft_mlt_25k.pth && \
-        touch /app/models/english_g2.pth && \
-        # Don't fail the build, but print warning
-        echo "WARNING: EasyOCR models will be downloaded at runtime! Build continuing..."; \
-    fi
+        sleep 10; \
+      done \
+    ) && \
+    # Download english_g2.pth with multiple attempts
+    ( \
+      for i in $(seq 1 10); do \
+        echo "Attempt $i for english_g2.pth" && \
+        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
+          -o /app/models/english_g2.pth \
+          https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth && \
+        if [ -s /app/models/english_g2.pth ]; then \
+          echo "Successfully downloaded english_g2.pth" && \
+          break; \
+        fi; \
+        # Try alternative mirrors if main URL fails
+        echo "Trying alternative mirror for english_g2.pth" && \
+        curl -fsSL --connect-timeout 30 --retry 5 --retry-delay 5 --retry-max-time 60 \
+          -o /app/models/english_g2.pth \
+          https://huggingface.co/spaces/towhee/EasyOCR/resolve/main/english_g2.pth && \
+        if [ -s /app/models/english_g2.pth ]; then \
+          echo "Successfully downloaded english_g2.pth from mirror" && \
+          break; \
+        fi; \
+        sleep 10; \
+      done \
+    ) && \
+    # Final verification - will fail build if models aren't found
+    if [ ! -s /app/models/craft_mlt_25k.pth ] || [ ! -s /app/models/english_g2.pth ]; then \
+      echo "ERROR: Failed to download EasyOCR models after multiple attempts." && \
+      echo "craft_mlt_25k.pth size: $(stat -c %s /app/models/craft_mlt_25k.pth 2>/dev/null || echo 'not found')" && \
+      echo "english_g2.pth size: $(stat -c %s /app/models/english_g2.pth 2>/dev/null || echo 'not found')" && \
+      exit 1; \
+    fi && \
+    echo "EasyOCR models downloaded successfully:" && \
+    ls -la /app/models/ && \
+    apt-get remove -y curl && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install a specific portable version of Blender (2.93 LTS) which has better compatibility
 RUN mkdir -p /opt/blender && \

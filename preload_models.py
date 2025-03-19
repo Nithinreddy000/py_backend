@@ -30,9 +30,9 @@ MODEL_URLS = {
     "yolov8n-pose.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt",
     "yolov8s-pose.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt",
     
-    # OCR models for jersey detection
-    "easyocr_detection.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth",
-    "easyocr_recognition_en.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth"
+    # OCR models for jersey detection - use the actual file names that we download
+    "craft_mlt_25k.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth",
+    "english_g2.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth"
 }
 
 def download_file(url, destination):
