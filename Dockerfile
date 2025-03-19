@@ -1,4 +1,4 @@
-FROM ultralytics/ultralytics:latest-jetson-jetpack6
+FROM ultralytics/ultralytics:latest
 
 WORKDIR /app
 
@@ -22,8 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xauth \
     mesa-utils \
     libgl1 \
-    libgles2 \
-    libosmesa6 \
     wget \
     unzip \
     # Video processing optimization packages
@@ -41,9 +39,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx265-dev \
     libvpx-dev \
     libwebp-dev \
-    # Additional dependencies for faster video processing
-    libopenexr-dev \
-    libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create models directory structure
@@ -52,16 +47,24 @@ RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_mo
 # Install Python dependencies with correct versions
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir numpy==1.24.3 && \
-    pip install --no-cache-dir opencv-python-headless==4.7.0.72 && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir easyocr==1.6.2 && \
     echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
     pip install importlib_metadata setuptools
 
+# Link Ultralytics models to our application models directory
+RUN mkdir -p /app/models && \
+    echo "Copying pre-installed YOLOv8 models to app directory..." && \
+    # Find where the models are stored in the ultralytics installation
+    ULTRALYTIC_MODEL_DIR=$(python -c "import ultralytics; from pathlib import Path; print(Path(ultralytics.__file__).parent / 'assets')") && \
+    # Copy the models from ultralytics package to our app directory
+    cp -v $ULTRALYTIC_MODEL_DIR/*.pt /app/models/ && \
+    # Verify the models are copied
+    ls -la /app/models/
+
 # Download EasyOCR models directly from S3
 RUN apt-get update && \
     apt-get install -y curl && \
-    mkdir -p /app/models && \
     curl -L -o /app/models/craft_mlt_25k.pth https://easyocr.s3.us-east-2.amazonaws.com/craft_mlt_25k.pth && \
     curl -L -o /app/models/english_g2.pth https://easyocr.s3.us-east-2.amazonaws.com/english_g2.pth && \
     ls -la /app/models/ && \
@@ -103,8 +106,8 @@ ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 RUN python -m spacy download en_core_web_sm
 
 # Pre-compile critical Python modules for faster startup
-RUN python -m compileall /usr/local/lib/python3.9/site-packages/cv2
-RUN python -m compileall /usr/local/lib/python3.9/site-packages/numpy
+RUN python -m compileall -q /usr/local/lib/python3*/site-packages/cv2
+RUN python -m compileall -q /usr/local/lib/python3*/site-packages/numpy
 
 # Copy only the model preload script first
 COPY preload_models.py ./
@@ -150,7 +153,7 @@ ENV VECLIB_MAXIMUM_THREADS=4
 ENV NUMEXPR_NUM_THREADS=4
 
 # Verify Blender installation
-RUN /usr/local/bin/blender --version || echo "Blender verification failed, but continuing"
+RUN bash -c "/usr/local/bin/blender --version || echo 'Blender verification failed, but continuing'"
 
 # Expose the port
 EXPOSE 8080
