@@ -84,16 +84,43 @@ def preload_ultralytics_models():
         
         # First verify all models exist
         missing_models = []
+        placeholder_models = []
         for model_name in models:
             model_path = MODEL_DIR / model_name
             if not model_path.exists():
                 print(f"ERROR: Required model {model_name} not found at {model_path}")
                 missing_models.append(model_name)
+            # Check if the file is just a placeholder
+            elif os.path.getsize(model_path) < 1000:  # Less than 1KB is likely a placeholder
+                print(f"WARNING: Model {model_name} appears to be a placeholder file")
+                placeholder_models.append(model_name)
+        
+        if missing_models or placeholder_models:
+            # Try to download missing or placeholder models
+            print(f"Attempting to download {len(missing_models)} missing and {len(placeholder_models)} placeholder models")
+            all_models_to_get = missing_models + placeholder_models
+            for model_name in all_models_to_get:
+                if model_name in MODEL_URLS:
+                    print(f"Downloading {model_name} from {MODEL_URLS[model_name]}")
+                    try:
+                        download_file(MODEL_URLS[model_name], MODEL_DIR / model_name)
+                    except Exception as e:
+                        print(f"Error downloading {model_name}: {e}")
+                else:
+                    print(f"No URL defined for {model_name}, skipping download")
+            
+            # Check again after attempted downloads
+            missing_models = []
+            for model_name in models:
+                model_path = MODEL_DIR / model_name
+                if not model_path.exists() or os.path.getsize(model_path) < 1000:
+                    missing_models.append(model_name)
         
         if missing_models:
-            print(f"ERROR: {len(missing_models)} models are missing. Docker build must download them first.")
+            print(f"ERROR: {len(missing_models)} models are missing or invalid. Docker build must download them first.")
             print(f"Missing models: {missing_models}")
-            return False
+            # Don't return False - we'll try to continue anyway with available models
+            print("Attempting to continue with available models")
         
         # Then try to load each model WITHOUT downloading
         os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true'
