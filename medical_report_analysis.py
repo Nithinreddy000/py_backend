@@ -5,13 +5,35 @@ from PIL import Image
 import fitz  # PyMuPDF
 import torch
 
-# Try to import transformers, but make it optional
-try:
-    from transformers import pipeline
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    print("WARNING: Transformers library not available. Using fallback summarization.")
+# Check if TensorFlow is disabled via environment variable or file
+DISABLE_TRANSFORMERS = os.environ.get('DISABLE_TRANSFORMERS', 'false').lower() in ('true', '1', 't')
+DISABLE_TF_FILE = os.path.exists('/app/disable_tf.txt')
+
+if DISABLE_TRANSFORMERS or DISABLE_TF_FILE:
+    print("Transformers and TensorFlow are explicitly disabled. Using fallback methods.")
     TRANSFORMERS_AVAILABLE = False
+else:
+    # Try to import transformers, but make it optional
+    try:
+        # Set environment variables to avoid TensorFlow initialization issues
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logging
+        os.environ['NO_BF16_INSTRUCTIONS'] = '1'  # Disable BF16 instructions
+        os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'  # Use Python implementation of protobuf
+
+        # Import transformers without TensorFlow backend
+        import transformers
+        transformers.logging.set_verbosity_error()  # Suppress transformers logging
+        
+        # Explicitly disable TensorFlow in transformers
+        transformers.utils.is_tf_available = lambda: False
+        
+        # Only import pipeline if no errors so far
+        from transformers import pipeline
+        TRANSFORMERS_AVAILABLE = True
+        print("Successfully imported transformers without TensorFlow.")
+    except Exception as e:
+        print(f"WARNING: Transformers library error: {str(e)}. Using fallback summarization.")
+        TRANSFORMERS_AVAILABLE = False
 
 from mistral_analysis_service import MistralAnalysisService
 import firebase_admin

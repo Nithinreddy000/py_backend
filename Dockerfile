@@ -39,20 +39,36 @@ RUN mkdir -p /opt/blender && \
 # Set environment variables for Blender
 ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 
+# Set environment variables to disable problematic TensorFlow features
+ENV TF_ENABLE_ONEDNN_OPTS=0
+ENV TF_CPP_MIN_LOG_LEVEL=3
+ENV DISABLE_TENSOR_FLOAT_32_EXECUTION=1
+ENV TF_DISABLE_MKL=1
+ENV NO_BF16_INSTRUCTIONS=1
+ENV CUDA_VISIBLE_DEVICES=-1
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+ENV PYTHONNOUSERSITE=1
+
 # Upgrade pip and install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir blinker==1.6.2
+
+# Install PyTorch first with specific versions for compatibility
+RUN pip install --no-cache-dir torch==1.13.1 torchvision==0.14.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Install other dependencies with better compatibility
+RUN pip install --no-cache-dir "tensorflow-cpu<2.12.0" "numpy<1.24.0" --force-reinstall && \
+    pip install --no-cache-dir ultralytics==8.0.196 --no-deps && \
+    pip install --no-cache-dir "pillow>=9.4.0" && \
+    pip install --no-cache-dir "transformers<4.30.0" --no-deps && \
+    pip install --no-cache-dir "tokenizers<0.14.0"
 
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
 # Create directories for models
 RUN mkdir -p models/yolo models/z-anatomy models/z-anatomy/output fallback_models
-
-# Install specific compatible versions of torch and ultralytics
-RUN pip install --no-cache-dir torch==1.13.1 torchvision==0.14.1 --force-reinstall && \
-    pip install --no-cache-dir ultralytics==8.0.196 --force-reinstall
 
 # Copy the download_models.py script first to pre-download models
 COPY download_models.py /app/
@@ -67,9 +83,7 @@ COPY . .
 # Create a volume for the models directory
 VOLUME /app/models
 
-# Set environment variables for optimizing TensorFlow and model loading
-ENV TF_ENABLE_ONEDNN_OPTS=0
-ENV TF_CPP_MIN_LOG_LEVEL=2
+# Set more environment variables for optimizing TensorFlow and model loading
 ENV TF_FORCE_GPU_ALLOW_GROWTH=true
 ENV LAZY_LOAD_MODELS=false
 ENV PYTHONUNBUFFERED=1
@@ -77,7 +91,10 @@ ENV PORT=8080
 ENV FLASK_APP=app.py
 ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
-ENV DISABLE_ML_MODELS=false
+ENV DISABLE_TRANSFORMERS=true
+
+# Create a file to disable TensorFlow in transformers
+RUN echo "Disabling TensorFlow in transformers for stability" > /app/disable_tf.txt
 
 # Point to pre-downloaded models
 ENV EASYOCR_MODULE_PATH=/app/models/easyocr
@@ -99,7 +116,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 # Run the application with Gunicorn with increased timeout
 CMD gunicorn --bind 0.0.0.0:$PORT \
-    --workers 2 \
+    --workers 1 \
     --threads 8 \
     --timeout 600 \
     --graceful-timeout 300 \

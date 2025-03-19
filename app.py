@@ -3072,6 +3072,28 @@ def initialize_on_startup():
         
     logger.info("Starting application initialization...")
     
+    # Set critical environment variables early to avoid TensorFlow issues
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    os.environ['NO_BF16_INSTRUCTIONS'] = '1'
+    os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+    os.environ['DISABLE_TENSOR_FLOAT_32_EXECUTION'] = '1'
+    
+    # Check if we should disable TensorFlow explicitly
+    if os.environ.get('DISABLE_TRANSFORMERS', 'false').lower() in ('true', '1', 't') or os.path.exists('/app/disable_tf.txt'):
+        logger.info("TensorFlow and Transformers are explicitly disabled. Using fallback methods.")
+    
+    # Log system information for debugging
+    try:
+        import platform
+        import sys
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Platform: {platform.platform()}")
+        logger.info(f"Machine: {platform.machine()}")
+        logger.info(f"Processor: {platform.processor()}")
+    except Exception as e:
+        logger.error(f"Error getting system info: {str(e)}")
+    
     # Initialize Cloudinary first
     initialize_cloudinary()
     
@@ -3079,15 +3101,31 @@ def initialize_on_startup():
     if not MODELS_LOADED:
         try:
             logger.info("Initializing ML models...")
+            
+            # Try to load PyTorch first to verify it works
+            try:
+                import torch
+                logger.info(f"PyTorch version: {torch.__version__}")
+                logger.info(f"PyTorch CUDA available: {torch.cuda.is_available()}")
+            except Exception as e:
+                logger.error(f"Error importing PyTorch: {str(e)}")
+            
+            # Initialize models with extra exception handling
             initialize_models()
             MODELS_LOADED = True
             logger.info("ML models initialized successfully")
         except Exception as e:
-            logger.error(f"Error initializing models: {str(e)}")
+            error_type = type(e).__name__
+            logger.error(f"Error initializing models ({error_type}): {str(e)}")
             logger.error("Will use fallback methods for processing")
-    
-    # Set environment variable to avoid TensorFlow optimization warnings
-    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+            
+            # Create a more detailed error log
+            try:
+                import traceback
+                error_details = traceback.format_exc()
+                logger.error(f"Detailed error:\n{error_details}")
+            except:
+                pass
     
     # Mark startup as complete
     STARTUP_COMPLETE = True
