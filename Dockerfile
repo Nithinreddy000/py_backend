@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM ultralytics/ultralytics:latest-jetson-jetpack6
 
 WORKDIR /app
 
@@ -44,90 +44,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Additional dependencies for faster video processing
     libopenexr-dev \
     libopencv-dev \
-    # Ensure pip is installed for model installation
-    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Create models directory structure before running preload
-RUN mkdir -p models/z-anatomy models/z-anatomy/output fallback_models
-
-# Copy just requirements.txt first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies with correct OpenCV version for Ultralytics
-RUN pip install --no-cache-dir --upgrade pip && \
-    # Install specific numpy version
-    pip install --no-cache-dir numpy==1.24.3 && \
-    # Install the CORRECT opencv version that works with Ultralytics
-    pip install --no-cache-dir opencv-python-headless==4.7.0.72 && \
-    pip install --no-cache-dir -r requirements.txt && \
-    # Install specific version of ultralytics known to be compatible with pose models
-    pip install --no-cache-dir ultralytics==8.0.196 && \
-    # Install specific version of easyocr
-    pip install --no-cache-dir easyocr==1.6.2 && \
-    # Set env var to prevent auto-download
-    echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
-    # Add the missing imports for model initialization
-    pip install importlib_metadata setuptools
-
-# Install FFmpeg directly from default repositories
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libavcodec-extra \
-    libavfilter-extra \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create model directories and prefetch all required models
+# Create models directory structure
 RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_models
 
-# Download YOLOv8 models with direct URLs from Hugging Face
-RUN mkdir -p /app/models && \
-    echo "Downloading YOLOv8 models from reliable sources..." && \
-    # Base models (detection) - Using direct Hugging Face URLs
-    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
-      -O /app/models/yolov8n.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.pt && \
-    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
-      -O /app/models/yolov8s.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s.pt && \
-    # Pose models - Using direct Hugging Face URLs
-    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
-      -O /app/models/yolov8n-pose.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n-pose.pt && \
-    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
-      -O /app/models/yolov8s-pose.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s-pose.pt && \
-    # ONNX models - Using direct Hugging Face URLs
-    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
-      -O /app/models/yolov8n.onnx https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.onnx && \
-    # Verify all essential models were downloaded
-    echo "Checking downloaded models..." && \
-    ls -la /app/models/ && \
-    # Verify file sizes to ensure they aren't empty
-    echo "yolov8n.pt size: $(stat -c %s /app/models/yolov8n.pt)" && \
-    echo "yolov8n-pose.pt size: $(stat -c %s /app/models/yolov8n-pose.pt)" && \
-    echo "yolov8n.onnx size: $(stat -c %s /app/models/yolov8n.onnx)" && \
-    # Verify models by checking file sizes
-    if [ ! -s /app/models/yolov8n.pt ] || [ ! -s /app/models/yolov8n-pose.pt ] || [ ! -s /app/models/yolov8n.onnx ]; then \
-      echo "ERROR: Failed to download YOLOv8 models. Build failed!" && \
-      exit 1; \
-    fi
+# Install Python dependencies with correct versions
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir numpy==1.24.3 && \
+    pip install --no-cache-dir opencv-python-headless==4.7.0.72 && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir easyocr==1.6.2 && \
+    echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
+    pip install importlib_metadata setuptools
 
-# Install EasyOCR models - FIXED VERSION with direct S3 URLs not GitHub
+# Download EasyOCR models directly from S3
 RUN apt-get update && \
-    # Install curl for reliable downloads
     apt-get install -y curl && \
-    # Create the model directory
     mkdir -p /app/models && \
-    # Download EasyOCR models from S3 directly
     curl -L -o /app/models/craft_mlt_25k.pth https://easyocr.s3.us-east-2.amazonaws.com/craft_mlt_25k.pth && \
     curl -L -o /app/models/english_g2.pth https://easyocr.s3.us-east-2.amazonaws.com/english_g2.pth && \
-    # Verify models exist and aren't empty
     ls -la /app/models/ && \
     echo "craft_mlt_25k.pth size: $(stat -c %s /app/models/craft_mlt_25k.pth)" && \
     echo "english_g2.pth size: $(stat -c %s /app/models/english_g2.pth)" && \
-    # If either model is missing or empty, fail the build
     if [ ! -s /app/models/craft_mlt_25k.pth ] || [ ! -s /app/models/english_g2.pth ]; then \
       echo "ERROR: EasyOCR models failed to download. Build failed!" && \
       exit 1; \
     fi && \
-    # Clean up
     apt-get remove -y curl && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
@@ -178,17 +121,13 @@ ENV EASYOCR_DOWNLOAD_ENABLED=False
 ENV ULTRALYTICS_CACHE_DIR=/app/models
 ENV EASYOCR_MODEL_DIR=/app/models
 
-# Create minimal script to test model loading correctly without using cv2.dnn directly
+# Create minimal script to test model loading
 RUN echo 'import torch; print("PyTorch:", torch.__version__); print("CUDA Available:", torch.cuda.is_available()); print("Device count:", torch.cuda.device_count())' > /app/test_torch.py && \
     echo 'import os\nimport sys\nfrom pathlib import Path\nmodels_dir = Path("/app/models")\nsys.path.append(str(models_dir))' > /app/test_models.py && \
     echo 'try:\n  import ultralytics\n  print("Ultralytics version:", ultralytics.__version__)\n  print("YOLO models present:", ", ".join(str(p) for p in Path("/app/models").glob("*.pt")))\nexcept Exception as e:\n  print("Error importing ultralytics:", e)' >> /app/test_models.py && \
     echo 'try:\n  import cv2\n  print("OpenCV version:", cv2.__version__)\nexcept Exception as e:\n  print("Error importing OpenCV:", e)' >> /app/test_models.py && \
     python /app/test_torch.py && \
     python /app/test_models.py
-
-# Preload all ML models during build time to avoid runtime delays
-# Use || true to ensure build continues even if preloading fails
-RUN ULTRALYTICS_NO_DOWNLOAD=false python preload_models.py || echo "Model preloading failed, continuing build regardless"
 
 # Copy the rest of the application
 COPY . .
