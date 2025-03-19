@@ -700,35 +700,10 @@ except Exception as e:
             import traceback
             traceback.print_exc()
             
-            # Check if the error is related to Blender not being found
-            is_blender_missing = "No such file or directory: 'blender'" in str(e) or "FileNotFoundError" in str(e) or "command not found" in str(e)
-            if is_blender_missing:
-                print("Blender executable not found. Attempting to install Blender...")
-                try:
-                    # Try to install Blender using the installation script
-                    install_script = os.path.join(self.script_dir, "install_blender.sh")
-                    
-                    if os.path.exists(install_script):
-                        print(f"Found Blender installation script at {install_script}")
-                        # Make the script executable
-                        subprocess.run(["chmod", "+x", install_script], check=False)
-                        # Run the installation script
-                        install_result = subprocess.run([install_script], check=False, capture_output=True, text=True)
-                        
-                        print(f"Blender installation script output: {install_result.stdout}")
-                        if install_result.returncode != 0:
-                            print(f"Blender installation failed: {install_result.stderr}")
-                    else:
-                        print(f"Blender installation script not found at {install_script}")
-                except Exception as install_error:
-                    print(f"Error attempting to install Blender: {install_error}")
-            
-            # Check for docker or container environment for additional fallbacks
-            is_container = os.path.exists("/.dockerenv") or os.environ.get("CONTAINER", "") == "true"
+            # Check if we're in a cloud environment for final fallback
             is_cloud_environment = os.environ.get('K_SERVICE') is not None or os.environ.get('CLOUD_RUN') == 'true'
-            
-            if is_container or is_cloud_environment:
-                print("Running in container/cloud environment, trying fallback models...")
+            if is_cloud_environment:
+                print("Final cloud fallback attempt...")
                 
                 # Create fallback directory if it doesn't exist
                 fallback_dir = self.script_dir / 'fallback_models'
@@ -737,48 +712,13 @@ except Exception as e:
                 # Use a basic fallback model
                 fallback_output_path = self.output_dir / f'emergency_fallback_model_{int(time.time())}.glb'
                 
-                # Check in multiple locations for fallback models
-                possible_locations = [
-                    self.script_dir / 'fallback_models',
-                    self.script_dir / 'models',
-                    self.script_dir / 'static' / 'models',
-                    Path('/app/fallback_models'),
-                    Path('/app/models')
-                ]
-                
-                for location in possible_locations:
-                    if location.exists():
-                        print(f"Checking for fallback models in {location}")
-                        fallback_files = list(location.glob('*.glb'))
-                        if fallback_files:
-                            print(f"Using emergency fallback model: {fallback_files[0]}")
-                            shutil.copy2(fallback_files[0], fallback_output_path)
-                            print(f"Emergency fallback model copied to: {fallback_output_path}")
-                            return str(fallback_output_path)
-                
-                # If no model found, create a simple dummy model with a text message 
-                print("No fallback models found, creating dummy model...")
-                try:
-                    # Create a JSON file indicating the error
-                    error_info = self.output_dir / 'error_info.json'
-                    with open(error_info, 'w') as f:
-                        import json
-                        json.dump({
-                            "error": "Blender not available",
-                            "message": "Failed to paint model due to missing Blender installation",
-                            "timestamp": time.time(),
-                            "original_error": str(e)
-                        }, f)
-                    
-                    # Create a dummy model (just a text file with .glb extension)
-                    dummy_model = self.output_dir / f'dummy_model_{int(time.time())}.glb'
-                    with open(dummy_model, 'w') as f:
-                        f.write("ERROR: Blender not available. Please install Blender.")
-                    
-                    print(f"Created dummy model at {dummy_model}")
-                    return str(dummy_model)
-                except Exception as dummy_error:
-                    print(f"Failed to create dummy model: {dummy_error}")
+                # Check for any GLB file in the fallback directory
+                fallback_files = list(fallback_dir.glob('*.glb'))
+                if fallback_files:
+                    print(f"Using emergency fallback model: {fallback_files[0]}")
+                    shutil.copy2(fallback_files[0], fallback_output_path)
+                    print(f"Emergency fallback model copied to: {fallback_output_path}")
+                    return str(fallback_output_path)
             
             # If all fallbacks fail, raise the exception
             raise Exception(f"Failed to paint model: {str(e)}")

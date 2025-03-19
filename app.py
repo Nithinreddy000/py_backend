@@ -2,8 +2,6 @@ import os
 import json
 import tempfile
 import uuid
-import sys
-import subprocess
 from pathlib import Path
 import numpy as np
 import time
@@ -1147,226 +1145,30 @@ def initialize_models():
         reader = None
         return
     
-    print("Initializing models from pre-downloaded files...")
+    try:
+        print("Initializing YOLOv8 models and OCR...")
         
-    # Use pre-downloaded models in /app/models
-    app_models_dir = "/app/models"
-    
-    # Get the directory where the script is located as fallback
+        # Get the directory where the script is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
-    models_dir = os.path.join(current_dir, "models")
-    os.makedirs(models_dir, exist_ok=True)
     
-    # List of possible model locations in order of preference
-    model_locations = [
-        app_models_dir,  # Docker-installed models are primary
-        models_dir,      # Local script directory models are secondary
-        current_dir,     # Models in script directory are tertiary
-        os.path.join(current_dir, "fallback_models")  # Last resort
-    ]
-    
-    # Find a model file in any of the possible locations
-    def find_model_file(filename):
-        for location in model_locations:
-            path = os.path.join(location, filename)
-            if os.path.exists(path):
-                print(f"Found model at {path}")
-                return path
-        print(f"Model {filename} not found in any location")
-        return None
-        
-    # --------------------------
-    # Initialize Pose Model (strict no-download approach)
-    # --------------------------
-    try:
-        # Try to import ultralytics with the right version
-        try:
-            # Check if ultralytics 8.0.196 is installed
-            print("Checking ultralytics version...")
-            import pkg_resources
-            ultralytics_version = pkg_resources.get_distribution("ultralytics").version
-            print(f"Installed ultralytics version: {ultralytics_version}")
-            
-            if ultralytics_version != "8.0.196":
-                print("Installing correct ultralytics version 8.0.196")
-                os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true'  # Prevent downloads
-                subprocess.run([sys.executable, "-m", "pip", "install", "--force-reinstall", "ultralytics==8.0.196"], check=True)
-        except Exception as version_err:
-            print(f"Error checking/installing ultralytics version: {version_err}")
-            # Continue anyway
-        
-        # Now try to import with environment variables set to prevent downloads
-        os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true' 
-        os.environ['ULTRALYTICS_CACHE_DIR'] = app_models_dir
-        
-        try:
-            from ultralytics import YOLO
-            print("Successfully imported ultralytics")
-        except ImportError:
-            print("Failed to import ultralytics, installing")
-            subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics==8.0.196"], check=True)
-            from ultralytics import YOLO
-        
-        # Find pose model file - try both n and s variants
-        pose_model_path = find_model_file("yolov8n-pose.pt")
-        if not pose_model_path:
-            pose_model_path = find_model_file("yolov8s-pose.pt")
-        
-        if pose_model_path:
-            try:
-                print(f"Loading YOLO pose model from {pose_model_path}")
-                # Load with specific task type to avoid PoseModel error
-                pose_model = YOLO(pose_model_path, task='pose')
-                print("Pose model loaded successfully")
-            except Exception as model_error:
-                print(f"Error loading pose model: {model_error}")
-                pose_model = None
+        # Initialize YOLOv8 pose model
+        model_path = os.path.join(current_dir, "yolov8x-pose.pt")
+        if os.path.exists(model_path):
+            pose_model = YOLO(model_path)
         else:
-            print("No pose model file found, using mock implementation")
-            pose_model = None
-    except Exception as pose_error:
-        print(f"Error initializing pose model: {pose_error}")
-        pose_model = None
+            print(f"Warning: Pose model not found at {model_path}, downloading from ultralytics...")
+            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model to save time
     
-    # --------------------------
-    # Initialize Object Detection (strict no-download approach)
-    # --------------------------
-    try:
-        jersey_model_path = find_model_file("yolov8n.pt")
-        if not jersey_model_path:
-            jersey_model_path = find_model_file("yolov8s.pt")
-        
-        if jersey_model_path and 'YOLO' in locals():
-            try:
-                print(f"Loading YOLO detection model from {jersey_model_path}")
-                jersey_detector = YOLO(jersey_model_path, task='detect')
-                print("Jersey detector loaded successfully")
-            except Exception as model_error:
-                print(f"Error loading jersey detector: {model_error}")
-                jersey_detector = None
-        else:
-            print("No jersey model file found or YOLO not imported, using mock implementation")
-            jersey_detector = None
-    except Exception as jersey_error:
-        print(f"Error initializing jersey detector: {jersey_error}")
-        jersey_detector = None
+        # Initialize YOLOv8 object detection model for jersey detection
+        jersey_detector = YOLO("yolov8n.pt")
     
-    # --------------------------
-    # Initialize OCR Reader (strict no-download approach)
-    # --------------------------
-    try:
-        # Check if both required EasyOCR models exist
-        craft_model_path = find_model_file("craft_mlt_25k.pth")
-        english_model_path = find_model_file("english_g2.pth")
-        
-        if craft_model_path and english_model_path:
-            try:
-                # Set environment variables to control EasyOCR
-                os.environ['EASYOCR_DOWNLOAD_ENABLED'] = 'false'
-                if 'EASYOCR_MODEL_DIR' not in os.environ:
-                    os.environ['EASYOCR_MODEL_DIR'] = os.path.dirname(craft_model_path)
-                
-                # Import EasyOCR
-                try:
-                    import easyocr
-                except ImportError:
-                    print("EasyOCR not installed, installing...")
-                    subprocess.run([sys.executable, "-m", "pip", "install", "easyocr==1.6.2"], check=True)
-                    import easyocr
-                
-                print(f"Initializing EasyOCR with model dir: {os.environ.get('EASYOCR_MODEL_DIR')}")
-                reader = easyocr.Reader(['en'], model_storage_directory=os.environ.get('EASYOCR_MODEL_DIR'))
-                print("OCR reader initialized successfully")
-            except Exception as ocr_error:
-                print(f"Error initializing OCR reader: {ocr_error}")
-                reader = None
-        else:
-            print("OCR model files not found, using mock implementation")
-            reader = None
-    except Exception as ocr_error:
-        print(f"Error initializing OCR reader: {ocr_error}")
-        reader = None
+        # Initialize OCR reader for jersey numbers
+        reader = easyocr.Reader(['en'])
     
-    # --------------------------
-    # Create Mock Implementations if needed
-    # --------------------------
-    if pose_model is None:
-        print("Setting up mock pose model implementation")
-        # Define a minimal mock pose model class
-        class MockPoseModel:
-            def __init__(self):
-                self.model_type = "pose"
-                print("Initialized mock pose model")
-            
-            def __call__(self, source):
-                # Return empty results in expected format
-                from dataclasses import dataclass
-                
-                @dataclass
-                class MockResults:
-                    keypoints = []
-                    boxes = []
-                    
-                    def cpu(self):
-                        return self
-                    
-                    def numpy(self):
-                        return self
-                
-                print("Using mock pose model")
-                return [MockResults()]
-        
-        pose_model = MockPoseModel()
-    
-    if jersey_detector is None:
-        print("Setting up mock jersey detector implementation")
-        # Define a minimal mock detector class
-        class MockDetector:
-            def __init__(self):
-                self.model_type = "detection"
-                print("Initialized mock detector")
-            
-            def __call__(self, source):
-                # Return empty results in expected format
-                from dataclasses import dataclass
-                
-                @dataclass
-                class MockResults:
-                    boxes = []
-                    
-                    def cpu(self):
-                        return self
-                    
-                    def numpy(self):
-                        return self
-                
-                print("Using mock detector")
-                return [MockResults()]
-        
-        jersey_detector = MockDetector()
-    
-    if reader is None:
-        print("Setting up mock OCR reader implementation")
-        # Define a minimal mock OCR reader
-        class MockOCRReader:
-            def __init__(self):
-                print("Initialized mock OCR reader")
-            
-            def readtext(self, image, **kwargs):
-                print("Using mock OCR reader")
-                return []  # Return empty results
-        
-        reader = MockOCRReader()
-    
-    # Set app config to indicate models are ready with fallbacks as needed
-    app.config['MODELS_READY'] = True
-    app.config['USING_MOCK_MODELS'] = (
-        isinstance(pose_model, globals().get('MockPoseModel', type(None))) or
-        isinstance(jersey_detector, globals().get('MockDetector', type(None))) or
-        isinstance(reader, globals().get('MockOCRReader', type(None)))
-    )
-    
-    print(f"Models initialization complete. Using mock models: {app.config.get('USING_MOCK_MODELS', False)}")
+        print("Models initialized successfully")
+    except Exception as e:
+        print(f"Error initializing models: {e}")
+        raise Exception(f"Failed to initialize required models: {e}")
 
 # Initialize models in a background thread if not lazy loading
 if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
