@@ -66,7 +66,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     # Set env var to prevent auto-download
     echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
     # Add the missing imports for model initialization
-    pip install importlib_metadata pkg_resources
+    pip install importlib_metadata setuptools
 
 # Install FFmpeg directly from default repositories
 RUN apt-get update && apt-get install -y --no-install-recommends \
