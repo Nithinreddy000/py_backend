@@ -59,8 +59,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir numpy==1.24.3 && \
     pip install --no-cache-dir opencv-contrib-python-headless==4.7.0.72 && \
     pip install --no-cache-dir -r requirements.txt && \
-    # Install specific version of ultralytics known to be compatible
-    pip install --no-cache-dir ultralytics==8.0.145 && \
+    # Install specific version of ultralytics known to be compatible with pose models
+    pip install --no-cache-dir ultralytics==8.0.196 && \
     # Install specific version of easyocr
     pip install --no-cache-dir easyocr==1.6.2
 
@@ -78,7 +78,11 @@ RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_mo
 RUN wget -q -O /app/models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt && \
     wget -q -O /app/models/yolov8s.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt && \
     wget -q -O /app/models/yolov8n-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt && \
+    wget -q -O /app/models/yolov8s-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt && \
     wget -q -O /app/models/yolov8n.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx && \
+    wget -q -O /app/models/yolov8s.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.onnx && \
+    wget -q -O /app/models/yolov8n-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx && \
+    wget -q -O /app/models/yolov8s-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.onnx && \
     ls -la /app/models/
 
 # Directly download EasyOCR models during build

@@ -1179,16 +1179,16 @@ def initialize_models():
     try:
         # Try to import ultralytics with the right version
         try:
-            # Check if ultralytics 8.0.145 is installed
+            # Check if ultralytics 8.0.196 is installed
             print("Checking ultralytics version...")
             import pkg_resources
             ultralytics_version = pkg_resources.get_distribution("ultralytics").version
             print(f"Installed ultralytics version: {ultralytics_version}")
             
-            if ultralytics_version != "8.0.145":
-                print("Installing correct ultralytics version 8.0.145")
+            if ultralytics_version != "8.0.196":
+                print("Installing correct ultralytics version 8.0.196")
                 os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true'  # Prevent downloads
-                subprocess.run([sys.executable, "-m", "pip", "install", "--force-reinstall", "ultralytics==8.0.145"], check=True)
+                subprocess.run([sys.executable, "-m", "pip", "install", "--force-reinstall", "ultralytics==8.0.196"], check=True)
         except Exception as version_err:
             print(f"Error checking/installing ultralytics version: {version_err}")
             # Continue anyway
@@ -1202,16 +1202,19 @@ def initialize_models():
             print("Successfully imported ultralytics")
         except ImportError:
             print("Failed to import ultralytics, installing")
-            subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics==8.0.145"], check=True)
+            subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics==8.0.196"], check=True)
             from ultralytics import YOLO
         
-        # Find pose model file
+        # Find pose model file - try both n and s variants
         pose_model_path = find_model_file("yolov8n-pose.pt")
+        if not pose_model_path:
+            pose_model_path = find_model_file("yolov8s-pose.pt")
         
         if pose_model_path:
             try:
                 print(f"Loading YOLO pose model from {pose_model_path}")
-                pose_model = YOLO(pose_model_path)
+                # Load with specific task type to avoid PoseModel error
+                pose_model = YOLO(pose_model_path, task='pose')
                 print("Pose model loaded successfully")
             except Exception as model_error:
                 print(f"Error loading pose model: {model_error}")
@@ -1228,11 +1231,13 @@ def initialize_models():
     # --------------------------
     try:
         jersey_model_path = find_model_file("yolov8n.pt")
+        if not jersey_model_path:
+            jersey_model_path = find_model_file("yolov8s.pt")
         
         if jersey_model_path and 'YOLO' in locals():
             try:
                 print(f"Loading YOLO detection model from {jersey_model_path}")
-                jersey_detector = YOLO(jersey_model_path)
+                jersey_detector = YOLO(jersey_model_path, task='detect')
                 print("Jersey detector loaded successfully")
             except Exception as model_error:
                 print(f"Error loading jersey detector: {model_error}")
