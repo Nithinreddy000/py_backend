@@ -44,13 +44,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create models directory structure
 RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_models
 
-# Install Python dependencies with correct versions
+# Install Python dependencies with correct versions and handle torch/torchvision compatibility
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir numpy==1.24.3 && \
-    pip install --no-cache-dir -r requirements.txt && \
+    # Install torch and torchvision separately with compatible versions
+    pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cpu && \
+    # Then install the rest of requirements, but skip the incompatible torch/torchvision
+    grep -v "torch\|torchvision" requirements.txt > filtered_requirements.txt && \
+    pip install --no-cache-dir -r filtered_requirements.txt && \
     pip install --no-cache-dir easyocr==1.6.2 && \
     echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
-    pip install importlib_metadata setuptools
+    pip install --no-cache-dir importlib_metadata setuptools cloudinary
 
 # Link Ultralytics models to our application models directory
 RUN mkdir -p /app/models && \
@@ -58,8 +62,21 @@ RUN mkdir -p /app/models && \
     # Find where the models are stored in the ultralytics installation
     ULTRALYTIC_MODEL_DIR=$(python -c "import ultralytics; from pathlib import Path; print(Path(ultralytics.__file__).parent / 'assets')") && \
     # Copy the models from ultralytics package to our app directory
-    cp -v $ULTRALYTIC_MODEL_DIR/*.pt /app/models/ && \
-    # Verify the models are copied
+    cp -v $ULTRALYTIC_MODEL_DIR/*.pt /app/models/ || echo "Models not found in assets directory" && \
+    # Try alternative locations if the first one fails
+    if [ ! -f /app/models/yolov8n.pt ]; then \
+      echo "Searching for models in alternative locations..." && \
+      find /opt -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /opt" && \
+      find /usr -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /usr" && \
+      # If models still not found, download them directly
+      if [ ! -f /app/models/yolov8n.pt ]; then \
+        echo "Downloading models directly..." && \
+        pip install --no-cache-dir ultralytics && \
+        python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8n-pose.pt')" && \
+        cp -v ~/.cache/torch/hub/ultralytics_assets/yolo/*.pt /app/models/ || echo "Failed to download models" \
+      fi \
+    fi && \
+    # Verify the models are available
     ls -la /app/models/
 
 # Download EasyOCR models directly from S3
@@ -106,7 +123,7 @@ ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 RUN python -m spacy download en_core_web_sm
 
 # Pre-compile critical Python modules for faster startup
-RUN python -m compileall -q /usr/local/lib/python3*/site-packages/cv2
+RUN python -m compileall -q /usr/local/lib/python3*/site-packages/cv2 || echo "No cv2 package found"
 RUN python -m compileall -q /usr/local/lib/python3*/site-packages/numpy
 
 # Copy only the model preload script first
