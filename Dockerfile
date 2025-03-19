@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy requirements file first for better caching
 COPY requirements.txt .
 
-# Install required system dependencies including OpenCV dependencies
+# Install required system dependencies with enhanced video processing capabilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -26,6 +26,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libosmesa6 \
     wget \
     unzip \
+    # Video processing optimization packages
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
+    libavfilter-dev \
+    libavutil-dev \
+    # Performance optimizations
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libv4l-dev \
+    libx264-dev \
+    libx265-dev \
+    libvpx-dev \
+    libwebp-dev \
+    # Additional dependencies for faster video processing
+    libopenexr-dev \
+    libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install a specific portable version of Blender (2.93 LTS) which has better compatibility
@@ -39,70 +57,70 @@ RUN mkdir -p /opt/blender && \
 # Set environment variables for Blender
 ENV BLENDER_PATH=/opt/blender/blender-2.93.13-linux-x64/blender
 
-# Set environment variables to disable problematic TensorFlow features
-ENV TF_ENABLE_ONEDNN_OPTS=0
-ENV TF_CPP_MIN_LOG_LEVEL=3
-ENV DISABLE_TENSOR_FLOAT_32_EXECUTION=1
-ENV TF_DISABLE_MKL=1
-ENV NO_BF16_INSTRUCTIONS=1
-ENV CUDA_VISIBLE_DEVICES=-1
-ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-ENV PYTHONNOUSERSITE=1
-
-# Upgrade pip and install Python dependencies
+# Install specific OpenCV build with optimizations pre-compiled
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir blinker==1.6.2
+    pip install --no-cache-dir numpy==1.24.3 && \
+    pip install --no-cache-dir opencv-contrib-python-headless==4.7.0.72 && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Install PyTorch first with specific versions for compatibility
-RUN pip install --no-cache-dir torch==1.13.1 torchvision==0.14.1 --index-url https://download.pytorch.org/whl/cpu
-
-# Install other dependencies with better compatibility
-RUN pip install --no-cache-dir "tensorflow-cpu<2.12.0" "numpy<1.24.0" --force-reinstall && \
-    pip install --no-cache-dir ultralytics==8.0.196 --no-deps && \
-    pip install --no-cache-dir "pillow>=9.4.0" && \
-    pip install --no-cache-dir "transformers<4.30.0" --no-deps && \
-    pip install --no-cache-dir "tokenizers<0.14.0"
+# Install FFmpeg with GPU acceleration support if available
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    add-apt-repository ppa:savoury1/ffmpeg5 -y && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
-# Create directories for models
-RUN mkdir -p models/yolo models/z-anatomy models/z-anatomy/output fallback_models
-
-# Copy the download_models.py script first to pre-download models
-COPY download_models.py /app/
-
-# Pre-download models using our custom script
-RUN chmod +x /app/download_models.py && \
-    python /app/download_models.py
+# Pre-compile critical Python modules for faster startup
+RUN python -m compileall /usr/local/lib/python3.9/site-packages/cv2
+RUN python -m compileall /usr/local/lib/python3.9/site-packages/numpy
 
 # Copy the rest of the application
 COPY . .
 
+# Create models directory if it doesn't exist
+RUN mkdir -p models/z-anatomy models/z-anatomy/output
+
+# Create fallback models directory
+RUN mkdir -p fallback_models
+
+# Make the preload script executable
+RUN chmod +x preload_models.py
+RUN chmod +x optimized_ffmpeg.py
+
+# Preload all ML models during build time to avoid runtime delays
+RUN python preload_models.py
+
+# Install additional video processing acceleration libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    vainfo \
+    intel-media-va-driver-non-free \
+    i965-va-driver-shaders \
+    && rm -rf /var/lib/apt/lists/*
+
+# Test if GPU acceleration is available and optimize FFmpeg settings
+RUN python -c "from optimized_ffmpeg import get_gpu_encoding_settings; print(f'Using GPU encoding settings: {get_gpu_encoding_settings()}')"
+
 # Create a volume for the models directory
 VOLUME /app/models
 
-# Set more environment variables for optimizing TensorFlow and model loading
-ENV TF_FORCE_GPU_ALLOW_GROWTH=true
-ENV LAZY_LOAD_MODELS=false
+# Set environment variables for performance
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 ENV FLASK_APP=app.py
 ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
-ENV DISABLE_TRANSFORMERS=true
-
-# Create a file to disable TensorFlow in transformers
-RUN echo "Disabling TensorFlow in transformers for stability" > /app/disable_tf.txt
-
-# Point to pre-downloaded models
-ENV EASYOCR_MODULE_PATH=/app/models/easyocr
-ENV YOLO_MODEL_PATH=/root/.config/ultralytics/models
-
-# Create cache directories for models
-RUN mkdir -p /root/.cache/torch
-RUN mkdir -p /root/.cache/pip
+ENV DISABLE_ML_MODELS=false
+ENV LAZY_LOAD_MODELS=false
+ENV OMP_NUM_THREADS=4
+ENV OPENBLAS_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+ENV VECLIB_MAXIMUM_THREADS=4
+ENV NUMEXPR_NUM_THREADS=4
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
@@ -116,7 +134,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 # Run the application with Gunicorn with increased timeout
 CMD gunicorn --bind 0.0.0.0:$PORT \
-    --workers 1 \
+    --workers 2 \
     --threads 8 \
     --timeout 600 \
     --graceful-timeout 300 \

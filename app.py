@@ -19,8 +19,6 @@ import requests
 import datetime
 import shutil
 import random
-import logging
-import atexit
 
 # Add Firestore import
 from google.cloud import firestore
@@ -30,54 +28,15 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Sentry SDK Configuration
-try:
-    import sentry_sdk
-    from sentry_sdk.integrations.flask import FlaskIntegration
-    SENTRY_AVAILABLE = True
-except ImportError:
-    SENTRY_AVAILABLE = False
-    logger.info("Sentry SDK not available")
-
-# Configure Sentry SDK if available
-if SENTRY_AVAILABLE:
-    try:
-        sentry_dsn = os.environ.get('SENTRY_DSN')
-        if sentry_dsn:
-            sentry_sdk.init(
-                dsn=sentry_dsn,
-                integrations=[FlaskIntegration()],
-                traces_sample_rate=0.1,
-                environment=os.environ.get('FLASK_ENV', 'production')
-            )
-            logger.info("Sentry SDK initialized successfully")
-        else:
-            # Disable Sentry if no DSN is provided
-            logger.info("Sentry DSN not provided. Sentry SDK will not be initialized.")
-    except Exception as e:
-        logger.error(f"Failed to initialize Sentry SDK: {str(e)}")
-        # Disable Sentry completely to prevent further errors
-        try:
-            # Clear the current client
-            sentry_sdk.init("")
-            logger.error("Sentry SDK disabled due to initialization error")
-        except:
-            pass
-
-# Global variables to store state
-MODELS_LOADED = False
-STARTUP_COMPLETE = False
-CLOUDINARY_INITIALIZED = False
-
 # Configure Cloudinary with debug information
-# Cloudinary is now configured using the initialize_cloudinary() function
-# This ensures we only initialize Cloudinary once during application startup
-# and prevents duplicate initialization messages in the logs
+print("Configuring Cloudinary...")
+cloudinary.config(
+    cloud_name = "ddu7ck4pg",
+    api_key = "933679325529897",
+    api_secret = "wRO_IJL4GwbesMK4X6F-WZvR5Bo",
+    secure = True
+)
+print(f"Cloudinary configuration: {cloudinary.config().cloud_name}, API Key: {cloudinary.config().api_key}")
 
 def upload_to_cloudinary(file_path, public_id=None):
     """
@@ -91,11 +50,16 @@ def upload_to_cloudinary(file_path, public_id=None):
         str: URL of the uploaded file
     """
     try:
-        logger.info(f"Uploading file to Cloudinary: {file_path}")
+        print(f"Uploading file to Cloudinary: {file_path}")
         
-        # Ensure Cloudinary is initialized
-        if not CLOUDINARY_INITIALIZED:
-            initialize_cloudinary()
+        # Set Cloudinary configuration directly in this function to ensure it uses the correct credentials
+        cloudinary.config(
+            cloud_name = "ddu7ck4pg",
+            api_key = "933679325529897",
+            api_secret = "wRO_IJL4GwbesMK4X6F-WZvR5Bo",
+            secure = True
+        )
+        print(f"Using Cloudinary config: {cloudinary.config().cloud_name}, API Key: {cloudinary.config().api_key}")
         
         # Verify file exists and is readable
         if not os.path.exists(file_path):
@@ -105,14 +69,14 @@ def upload_to_cloudinary(file_path, public_id=None):
         if file_size == 0:
             raise ValueError(f"File is empty: {file_path}")
             
-        logger.info(f"File exists and has size: {file_size} bytes")
+        print(f"File exists and has size: {file_size} bytes")
         
         # Try to open the file to verify it's readable
         with open(file_path, 'rb') as f:
             # Read a small portion to verify it's readable
             f.read(1024)
             
-        logger.info(f"File is readable: {file_path}")
+        print(f"File is readable: {file_path}")
             
         # Set options for the upload
         options = {
@@ -125,14 +89,14 @@ def upload_to_cloudinary(file_path, public_id=None):
             options["public_id"] = public_id
             
         # Upload to Cloudinary
-        logger.info(f"Starting Cloudinary upload with options: {options}")
+        print(f"Starting Cloudinary upload with options: {options}")
         result = cloudinary.uploader.upload(file_path, **options)
-        logger.info(f"File uploaded successfully to Cloudinary: {result['secure_url']}")
+        print(f"File uploaded successfully to Cloudinary: {result['secure_url']}")
         
         # Return the URL of the uploaded file
         return result['secure_url']
     except Exception as e:
-        logger.error(f"Error in Cloudinary upload process: {str(e)}")
+        print(f"Error in Cloudinary upload process: {str(e)}")
         import traceback
         traceback.print_exc()
         # Return a fallback URL
@@ -596,144 +560,6 @@ def health_check():
     response.headers.add('Content-Type', 'application/json')
     
     return response, 200
-
-@app.route('/health/details', methods=['GET'])
-@cross_origin(origins='*', supports_credentials=True)
-def detailed_health_check():
-    """Detailed health check endpoint for monitoring the service and its components"""
-    import os
-    import sys
-    import platform
-    import psutil
-    import pkg_resources
-    from datetime import datetime, timedelta
-    
-    try:
-        # Basic health info
-        health_info = {
-            'status': 'healthy',
-            'timestamp': datetime.now().isoformat(),
-            'uptime': str(timedelta(seconds=int(time.time() - psutil.boot_time()))),
-            'environment': os.environ.get('FLASK_ENV', 'production')
-        }
-        
-        # System information
-        system_info = {
-            'os': platform.system(),
-            'os_version': platform.version(),
-            'python_version': sys.version,
-            'hostname': platform.node(),
-            'cpu_count': psutil.cpu_count(),
-            'memory_total': f"{psutil.virtual_memory().total / (1024 * 1024 * 1024):.2f} GB",
-            'memory_available': f"{psutil.virtual_memory().available / (1024 * 1024 * 1024):.2f} GB",
-            'disk_usage': f"{psutil.disk_usage('/').percent}%"
-        }
-        
-        # Model information
-        model_info = {}
-        
-        # YOLO models
-        try:
-            yolo_path = os.environ.get('YOLO_MODEL_PATH', '/root/.config/ultralytics/models')
-            yolo_models = ['yolov8n.pt', 'yolov8n-pose.pt']
-            yolo_status = {}
-            
-            for model_name in yolo_models:
-                model_path = os.path.join(yolo_path, model_name)
-                if os.path.exists(model_path):
-                    size_mb = os.path.getsize(model_path) / (1024 * 1024)
-                    yolo_status[model_name] = {
-                        'available': True,
-                        'size': f"{size_mb:.2f} MB",
-                        'path': model_path,
-                        'last_modified': datetime.fromtimestamp(os.path.getmtime(model_path)).isoformat()
-                    }
-                else:
-                    yolo_status[model_name] = {'available': False}
-            
-            model_info['yolo'] = {
-                'status': 'loaded' if global_yolo_model is not None else 'not_loaded',
-                'models': yolo_status
-            }
-        except Exception as e:
-            model_info['yolo'] = {'status': 'error', 'error': str(e)}
-        
-        # EasyOCR models
-        try:
-            easyocr_path = os.environ.get('EASYOCR_MODULE_PATH', '/app/models/easyocr')
-            if os.path.exists(easyocr_path):
-                files = os.listdir(easyocr_path)
-                model_info['easyocr'] = {
-                    'status': 'available',
-                    'path': easyocr_path,
-                    'files_count': len(files),
-                    'files': files[:5] + ['...'] if len(files) > 5 else files
-                }
-            else:
-                model_info['easyocr'] = {'status': 'directory_not_found'}
-        except Exception as e:
-            model_info['easyocr'] = {'status': 'error', 'error': str(e)}
-        
-        # Blender check
-        try:
-            import subprocess
-            blender_result = subprocess.run(['which', 'blender'], capture_output=True, text=True)
-            if blender_result.returncode == 0:
-                blender_path = blender_result.stdout.strip()
-                version_result = subprocess.run([blender_path, '--version'], capture_output=True, text=True)
-                model_info['blender'] = {
-                    'status': 'available',
-                    'path': blender_path,
-                    'version': version_result.stdout.strip() if version_result.returncode == 0 else 'unknown'
-                }
-            else:
-                model_info['blender'] = {'status': 'not_found'}
-        except Exception as e:
-            model_info['blender'] = {'status': 'error', 'error': str(e)}
-        
-        # Dependencies versions
-        dependencies = {
-            'flask': 'unknown',
-            'torch': 'unknown',
-            'torchvision': 'unknown',
-            'ultralytics': 'unknown',
-            'easyocr': 'unknown',
-            'numpy': 'unknown',
-            'opencv-python': 'unknown',
-            'gunicorn': 'unknown',
-            'cloudinary': 'unknown',
-            'sentry-sdk': 'unknown',
-            'blinker': 'unknown'
-        }
-        
-        for package in dependencies.keys():
-            try:
-                version = pkg_resources.get_distribution(package).version
-                dependencies[package] = version
-            except:
-                pass
-        
-        # Combine all information
-        detailed_status = {
-            'health': health_info,
-            'system': system_info,
-            'models': model_info,
-            'dependencies': dependencies
-        }
-        
-        # Ensure CORS headers are included in the response
-        response = jsonify(detailed_status)
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Content-Type', 'application/json')
-        
-        return response, 200
-    except Exception as e:
-        error_response = {
-            'status': 'error',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }
-        return jsonify(error_response), 500
 
 @app.route('/match_processing_status/<match_id>', methods=['GET'])
 def match_processing_status(match_id):
@@ -1300,77 +1126,49 @@ reader = None
 jersey_mapping_cache = {}
 
 def initialize_models():
-    """Initialize machine learning models and cache them in memory"""
-    global pose_model, jersey_detector, reader, MODELS_LOADED
+    global pose_model, jersey_detector, reader
     
-    # Don't reload models if they're already loaded
-    if MODELS_LOADED:
-        logger.info("Models already loaded, skipping initialization")
-        return
-    
-    # Check if we should disable ML models
+    # Check if ML models are disabled via environment variable
     if os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true':
-        logger.info("ML models disabled by configuration, using mock implementations")
+        print("ML models are disabled via environment variable")
         pose_model = None
         jersey_detector = None
         reader = None
-        MODELS_LOADED = True
         return
     
     # Check if we should lazy load models
     lazy_load = os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true'
-    
-    try:
-        logger.info("Initializing Jersey Detector...")
-        jersey_detector = JerseyDetector()
-        logger.info("Jersey Detector initialized successfully")
-        
-        if not lazy_load:
-            logger.info("Initializing YOLO model...")
-            if YOLO_AVAILABLE:
-                try:
-                    # Try using a specific compatible version syntax
-                    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'yolov8l-pose.pt')
-                    
-                    # Check if the model file exists
-                    if not os.path.exists(model_path):
-                        logger.warning(f"Model file not found at {model_path}, attempting to download...")
-                        
-                    # Use compatible syntax for different ultralytics versions
-                    try:
-                        # For newer ultralytics versions
-                        pose_model = YOLO(model_path)
-                    except (AttributeError, TypeError) as e:
-                        logger.warning(f"Error with standard YOLO loading: {str(e)}")
-                        logger.info("Trying alternative loading method...")
-                        
-                        # For older ultralytics versions
-                        from ultralytics import YOLO as YOLOv8
-                        pose_model = YOLOv8(model_path)
-                    
-                    logger.info("YOLO model loaded successfully")
-                except Exception as e:
-                    logger.error(f"Failed to load YOLO model: {str(e)}")
-                    logger.info("Using mock model implementation as fallback")
-                    pose_model = None
-            else:
-                logger.warning("YOLO not available, using mock implementation")
-                pose_model = None
-        else:
-            logger.info("Lazy loading enabled, YOLO model will be loaded on first use")
-            pose_model = None
-            
-    except Exception as e:
-        logger.error(f"Error initializing models: {str(e)}")
+    if lazy_load:
+        print("ML models will be lazy loaded when needed")
         pose_model = None
         jersey_detector = None
         reader = None
+        return
     
-    # Set models as loaded even if there were errors, to prevent continuous retries
-    MODELS_LOADED = True
-    logger.info("ML models initialization completed (with or without errors)")
+    try:
+        print("Initializing YOLOv8 models and OCR...")
+        
+        # Get the directory where the script is located
+        current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    return pose_model, jersey_detector, reader
+        # Initialize YOLOv8 pose model
+        model_path = os.path.join(current_dir, "yolov8x-pose.pt")
+        if os.path.exists(model_path):
+            pose_model = YOLO(model_path)
+        else:
+            print(f"Warning: Pose model not found at {model_path}, downloading from ultralytics...")
+            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model to save time
+    
+        # Initialize YOLOv8 object detection model for jersey detection
+        jersey_detector = YOLO("yolov8n.pt")
+    
+        # Initialize OCR reader for jersey numbers
+        reader = easyocr.Reader(['en'])
+    
+        print("Models initialized successfully")
+    except Exception as e:
+        print(f"Error initializing models: {e}")
+        raise Exception(f"Failed to initialize required models: {e}")
 
 # Initialize models in a background thread if not lazy loading
 if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
@@ -3048,140 +2846,6 @@ def fallback_cors_headers(response):
         response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
         
     return response
-
-# Add this at the top with the other imports
-import logging
-import atexit
-
-# Set up logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Global variables to store loaded models
-MODELS_LOADED = False
-STARTUP_COMPLETE = False
-
-# Initialize models at startup instead of per request
-@app.before_first_request
-def initialize_on_startup():
-    global MODELS_LOADED, STARTUP_COMPLETE
-    
-    if STARTUP_COMPLETE:
-        return
-        
-    logger.info("Starting application initialization...")
-    
-    # Set critical environment variables early to avoid TensorFlow issues
-    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    os.environ['NO_BF16_INSTRUCTIONS'] = '1'
-    os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
-    os.environ['DISABLE_TENSOR_FLOAT_32_EXECUTION'] = '1'
-    
-    # Check if we should disable TensorFlow explicitly
-    if os.environ.get('DISABLE_TRANSFORMERS', 'false').lower() in ('true', '1', 't') or os.path.exists('/app/disable_tf.txt'):
-        logger.info("TensorFlow and Transformers are explicitly disabled. Using fallback methods.")
-    
-    # Log system information for debugging
-    try:
-        import platform
-        import sys
-        logger.info(f"Python version: {sys.version}")
-        logger.info(f"Platform: {platform.platform()}")
-        logger.info(f"Machine: {platform.machine()}")
-        logger.info(f"Processor: {platform.processor()}")
-    except Exception as e:
-        logger.error(f"Error getting system info: {str(e)}")
-    
-    # Initialize Cloudinary first
-    initialize_cloudinary()
-    
-    # Only load models if not already loaded
-    if not MODELS_LOADED:
-        try:
-            logger.info("Initializing ML models...")
-            
-            # Try to load PyTorch first to verify it works
-            try:
-                import torch
-                logger.info(f"PyTorch version: {torch.__version__}")
-                logger.info(f"PyTorch CUDA available: {torch.cuda.is_available()}")
-            except Exception as e:
-                logger.error(f"Error importing PyTorch: {str(e)}")
-            
-            # Initialize models with extra exception handling
-            initialize_models()
-            MODELS_LOADED = True
-            logger.info("ML models initialized successfully")
-        except Exception as e:
-            error_type = type(e).__name__
-            logger.error(f"Error initializing models ({error_type}): {str(e)}")
-            logger.error("Will use fallback methods for processing")
-            
-            # Create a more detailed error log
-            try:
-                import traceback
-                error_details = traceback.format_exc()
-                logger.error(f"Detailed error:\n{error_details}")
-            except:
-                pass
-    
-    # Mark startup as complete
-    STARTUP_COMPLETE = True
-    logger.info("Application initialization complete")
-
-# Register cleanup function
-def cleanup_resources():
-    logger.info("Cleaning up application resources...")
-    # Any cleanup code here (releasing GPU memory, closing connections, etc.)
-
-atexit.register(cleanup_resources)
-
-# The Sentry SDK configuration has been moved to the top of the file
-# This section has been removed to prevent duplicate initialization
-
-# Add this as a global variable at the top level to track Cloudinary initialization
-CLOUDINARY_INITIALIZED = False
-
-# Replace the existing Cloudinary configuration with this version
-def initialize_cloudinary():
-    global CLOUDINARY_INITIALIZED
-    
-    # Only initialize once
-    if CLOUDINARY_INITIALIZED:
-        return
-        
-    try:
-        logger.info("Configuring Cloudinary...")
-        
-        # Get configuration from environment or use defaults
-        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "ddu7ck4pg")
-        api_key = os.environ.get("CLOUDINARY_API_KEY", "933679325529897")
-        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "wRO_IJL4GwbesMK4X6F-WZvR5Bo")
-        
-        # Configure Cloudinary only once
-        cloudinary.config(
-            cloud_name=cloud_name,
-            api_key=api_key,
-            api_secret=api_secret,
-            secure=True
-        )
-        
-        # Test connection to verify configuration
-        test_result = cloudinary.api.ping()
-        if test_result.get('status') == 'ok':
-            logger.info(f"Cloudinary initialized successfully: {cloud_name}")
-        else:
-            logger.warning("Cloudinary ping test did not return 'ok' status")
-        
-        CLOUDINARY_INITIALIZED = True
-    except Exception as e:
-        logger.error(f"Error configuring Cloudinary: {str(e)}")
-        # Continue even if Cloudinary fails - we'll handle upload failures separately
-
-# Call initialize_cloudinary at startup, not during import
-initialize_cloudinary()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

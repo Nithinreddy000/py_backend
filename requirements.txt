@@ -6,7 +6,6 @@ gunicorn==20.1.0
 flask-restful==0.3.9
 uvicorn==0.21.1
 fastapi==0.109.2
-blinker==1.6.2  # Required for Sentry SDK's Flask integration
 
 # PDF/Document processing
 pdfplumber==0.9.0
@@ -53,16 +52,11 @@ tensorflow-cpu==2.12.0
 torch==1.13.1
 torchvision==0.14.1
 mediapipe==0.10.5
-ultralytics==8.0.196  # Updated to specific version that supports pose models
+ultralytics==8.0.20
 supervision==0.11.1
 
 # Utilities
 python-dotenv==1.0.0
 pytest==7.3.1
 future==0.18.3
-gevent==22.10.2
-psutil==5.9.5  # For system monitoring and health checks
-
-# Additional dependencies
-# ... (existing code)
-# ... (additional dependencies) 
+gevent==22.10.2 

@@ -5,29 +5,8 @@
 
 echo "Fixing Gunicorn worker timeout issues..."
 
-# Environment variables to optimize model loading and TensorFlow
-export TF_ENABLE_ONEDNN_OPTS=0
-export TF_CPP_MIN_LOG_LEVEL=2
-export TF_FORCE_GPU_ALLOW_GROWTH=true
-export LAZY_LOAD_MODELS=false
-export CORS_ENABLED=true
-export PYTHONUNBUFFERED=1
-
-# Disable Sentry by setting an empty DSN
-export SENTRY_DSN=""
-
 # Find the Gunicorn process
 GUNICORN_PID=$(pgrep -f gunicorn)
-
-# Create necessary directories
-mkdir -p models/yolo models/z-anatomy models/z-anatomy/output
-mkdir -p fallback_models
-
-# Install correct ultralytics version if needed
-if ! python -c "from ultralytics import YOLO" 2>/dev/null; then
-  echo "Installing compatible ultralytics version..."
-  pip install ultralytics==8.0.196
-fi
 
 if [ -z "$GUNICORN_PID" ]; then
   echo "No Gunicorn process found. Starting with fixed settings..."
@@ -42,7 +21,6 @@ if [ -z "$GUNICORN_PID" ]; then
     --max-requests 1000 \
     --max-requests-jitter 50 \
     --worker-class gthread \
-    --preload \
     --log-level info \
     app:app &
     
@@ -66,11 +44,10 @@ else
     --max-requests 1000 \
     --max-requests-jitter 50 \
     --worker-class gthread \
-    --preload \
     --log-level info \
     app:app &
     
   echo "Started Gunicorn with PID: $!"
 fi
 
-echo "Fix completed! Models will now be preloaded and shared between workers." 
+echo "Fix completed!" 
