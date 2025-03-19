@@ -19,20 +19,20 @@ print(f"Downloading models to {MODEL_DIR.absolute()}")
 
 # URLs for common ML models used in video processing
 MODEL_URLS = {
-    # YOLOv8 models
-    "yolov8n.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt",
-    "yolov8s.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt",
+    # YOLOv8 models - Using reliable Hugging Face repository
+    "yolov8n.pt": "https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.pt",
+    "yolov8s.pt": "https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s.pt",
     
     # ONNX runtime models
-    "yolov8n.onnx": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx",
+    "yolov8n.onnx": "https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.onnx",
     
     # Pose estimation models
-    "yolov8n-pose.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt",
-    "yolov8s-pose.pt": "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt",
+    "yolov8n-pose.pt": "https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n-pose.pt",
+    "yolov8s-pose.pt": "https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s-pose.pt",
     
-    # OCR models for jersey detection - use the actual file names that we download
-    "craft_mlt_25k.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth",
-    "english_g2.pth": "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth"
+    # OCR models for jersey detection - use the actual file names that are downloaded
+    "craft_mlt_25k.pth": "https://easyocr.s3.us-east-2.amazonaws.com/craft_mlt_25k.pth",
+    "english_g2.pth": "https://easyocr.s3.us-east-2.amazonaws.com/english_g2.pth"
 }
 
 def download_file(url, destination):

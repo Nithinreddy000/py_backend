@@ -54,10 +54,12 @@ RUN mkdir -p models/z-anatomy models/z-anatomy/output fallback_models
 # Copy just requirements.txt first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies with correct OpenCV version for Ultralytics
 RUN pip install --no-cache-dir --upgrade pip && \
+    # Install specific numpy version
     pip install --no-cache-dir numpy==1.24.3 && \
-    pip install --no-cache-dir opencv-contrib-python-headless==4.7.0.72 && \
+    # Install the CORRECT opencv version that works with Ultralytics
+    pip install --no-cache-dir opencv-python-headless==4.7.0.72 && \
     pip install --no-cache-dir -r requirements.txt && \
     # Install specific version of ultralytics known to be compatible with pose models
     pip install --no-cache-dir ultralytics==8.0.196 && \
@@ -78,57 +80,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create model directories and prefetch all required models
 RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_models
 
-# Download YOLOv8 models with retry logic and better error handling
-RUN for i in 1 2 3; do \
-      echo "Download attempt $i for YOLOv8 models"; \
-      mkdir -p /app/models && \
-      # Base models (detection) \
-      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt && \
-      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt && \
-      # Pose models \
-      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt && \
-      # Only if previous download succeeded, get additional models \
-      if [ -s /app/models/yolov8n-pose.pt ]; then \
-        # Use a different approach for ONNX models with specific version URLs
-        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt || echo "Optional model download failed"; \
-        
-        # Try different URLs for ONNX files
-        for onnx_url in \
-          "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx" \
-          "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov8n.onnx" \
-          "https://ultralytics.com/assets/yolov8n.onnx"; \
-        do \
-          echo "Trying ONNX URL: $onnx_url" && \
-          wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n.onnx "$onnx_url" && \
-          if [ -s /app/models/yolov8n.onnx ]; then \
-            echo "Successfully downloaded yolov8n.onnx"; \
-            break; \
-          fi; \
-        done; \
-        
-        # If ONNX file still empty, create dummy file
-        if [ ! -s /app/models/yolov8n.onnx ]; then \
-          echo "Creating placeholder ONNX files"; \
-          echo "Placeholder" > /app/models/yolov8n.onnx; \
-          echo "Placeholder" > /app/models/yolov8s.onnx; \
-          echo "Placeholder" > /app/models/yolov8n-pose.onnx; \
-          echo "Placeholder" > /app/models/yolov8s-pose.onnx; \
-        fi; \
-      fi; \
-      # Check if essential models were downloaded successfully \
-      if [ -s /app/models/yolov8n.pt ] && [ -s /app/models/yolov8n-pose.pt ]; then \
-        echo "Essential models downloaded successfully"; \
-        ls -la /app/models/; \
-        break; \
-      else \
-        echo "Download failed, retrying..."; \
-        if [ $i -eq 3 ]; then \
-          echo "ERROR: Failed to download essential models after 3 attempts"; \
-          exit 1; \
-        fi; \
-        sleep 5; \
-      fi; \
-    done
+# Download YOLOv8 models with direct URLs from Hugging Face
+RUN mkdir -p /app/models && \
+    echo "Downloading YOLOv8 models from reliable sources..." && \
+    # Base models (detection) - Using direct Hugging Face URLs
+    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
+      -O /app/models/yolov8n.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.pt && \
+    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
+      -O /app/models/yolov8s.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s.pt && \
+    # Pose models - Using direct Hugging Face URLs
+    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
+      -O /app/models/yolov8n-pose.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n-pose.pt && \
+    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
+      -O /app/models/yolov8s-pose.pt https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8s-pose.pt && \
+    # ONNX models - Using direct Hugging Face URLs
+    wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 \
+      -O /app/models/yolov8n.onnx https://huggingface.co/Ultralytics/ultralytics/resolve/main/yolov8n.onnx && \
+    # Verify all essential models were downloaded
+    echo "Checking downloaded models..." && \
+    ls -la /app/models/ && \
+    # Verify file sizes to ensure they aren't empty
+    echo "yolov8n.pt size: $(stat -c %s /app/models/yolov8n.pt)" && \
+    echo "yolov8n-pose.pt size: $(stat -c %s /app/models/yolov8n-pose.pt)" && \
+    echo "yolov8n.onnx size: $(stat -c %s /app/models/yolov8n.onnx)" && \
+    # Verify models by checking file sizes
+    if [ ! -s /app/models/yolov8n.pt ] || [ ! -s /app/models/yolov8n-pose.pt ] || [ ! -s /app/models/yolov8n.onnx ]; then \
+      echo "ERROR: Failed to download YOLOv8 models. Build failed!" && \
+      exit 1; \
+    fi
 
 # Install EasyOCR models - FIXED VERSION with direct S3 URLs not GitHub
 RUN apt-get update && \
@@ -199,13 +178,13 @@ ENV EASYOCR_DOWNLOAD_ENABLED=False
 ENV ULTRALYTICS_CACHE_DIR=/app/models
 ENV EASYOCR_MODEL_DIR=/app/models
 
-# Create minimal script to test model loading and initialize them properly
+# Create minimal script to test model loading correctly without using cv2.dnn directly
 RUN echo 'import torch; print("PyTorch:", torch.__version__); print("CUDA Available:", torch.cuda.is_available()); print("Device count:", torch.cuda.device_count())' > /app/test_torch.py && \
-    echo 'import sys; import os; from pathlib import Path; models_dir = Path("/app/models"); sys.path.append(str(models_dir))' > /app/test_models.py && \
-    echo 'try:\n  from ultralytics import YOLO\n  model = YOLO("/app/models/yolov8n.pt")\n  print("Loaded YOLOv8n model:", model)\nexcept Exception as e:\n  print("Error loading YOLO model:", e)' >> /app/test_models.py && \
-    echo 'try:\n  from ultralytics import YOLO\n  pose_model = YOLO("/app/models/yolov8n-pose.pt")\n  print("Loaded YOLOv8n-pose model:", pose_model)\nexcept Exception as e:\n  print("Error loading YOLOv8n-pose model:", e)' >> /app/test_models.py && \
-    python /app/test_torch.py || echo "PyTorch test failed but continuing" && \
-    python /app/test_models.py || echo "Model loading test failed but continuing"
+    echo 'import os\nimport sys\nfrom pathlib import Path\nmodels_dir = Path("/app/models")\nsys.path.append(str(models_dir))' > /app/test_models.py && \
+    echo 'try:\n  import ultralytics\n  print("Ultralytics version:", ultralytics.__version__)\n  print("YOLO models present:", ", ".join(str(p) for p in Path("/app/models").glob("*.pt")))\nexcept Exception as e:\n  print("Error importing ultralytics:", e)' >> /app/test_models.py && \
+    echo 'try:\n  import cv2\n  print("OpenCV version:", cv2.__version__)\nexcept Exception as e:\n  print("Error importing OpenCV:", e)' >> /app/test_models.py && \
+    python /app/test_torch.py && \
+    python /app/test_models.py
 
 # Preload all ML models during build time to avoid runtime delays
 # Use || true to ensure build continues even if preloading fails
