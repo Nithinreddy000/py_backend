@@ -74,31 +74,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create model directories and prefetch all required models
 RUN mkdir -p /app/models/z-anatomy /app/models/z-anatomy/output /app/fallback_models
 
-# Download YOLOv8 models with better error handling
-RUN cd /app/models && \
-    echo "Downloading YOLOv8 models..." && \
-    wget -q -O yolov8n.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt || echo "Failed to download yolov8n.pt but continuing" && \
-    wget -q -O yolov8s.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt || echo "Failed to download yolov8s.pt but continuing" && \
-    wget -q -O yolov8n-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt || echo "Failed to download yolov8n-pose.pt but continuing" && \
-    wget -q -O yolov8s-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt || echo "Failed to download yolov8s-pose.pt but continuing"
-
-# Try to download ONNX models (but these are optional)
-RUN cd /app/models && \
-    echo "Attempting to download ONNX models (optional)..." && \
-    wget -q -O yolov8n.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx || echo "Failed to download yolov8n.onnx but continuing" && \
-    wget -q -O yolov8s.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.onnx || echo "Failed to download yolov8s.onnx but continuing" && \
-    wget -q -O yolov8n-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx || echo "Failed to download yolov8n-pose.onnx but continuing" && \
-    wget -q -O yolov8s-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.onnx || echo "Failed to download yolov8s-pose.onnx but continuing" && \
-    echo "Model download attempts complete. Listing downloaded models:" && \
-    ls -la /app/models/
+# Download YOLOv8 models with retry logic and better error handling
+RUN for i in 1 2 3; do \
+      echo "Download attempt $i for YOLOv8 models"; \
+      mkdir -p /app/models && \
+      # Base models (detection) \
+      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt && \
+      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt && \
+      # Pose models \
+      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt && \
+      # Only if previous download succeeded, get additional models \
+      if [ -s /app/models/yolov8n-pose.pt ]; then \
+        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s-pose.pt https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.pt || echo "Optional model download failed"; \
+        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx || echo "Optional model download failed"; \
+        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.onnx || echo "Optional model download failed"; \
+        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8n-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.onnx || echo "Optional model download failed"; \
+        wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/yolov8s-pose.onnx https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s-pose.onnx || echo "Optional model download failed"; \
+      fi; \
+      # Check if essential models were downloaded successfully \
+      if [ -s /app/models/yolov8n.pt ] && [ -s /app/models/yolov8n-pose.pt ]; then \
+        echo "Essential models downloaded successfully"; \
+        ls -la /app/models/; \
+        break; \
+      else \
+        echo "Download failed, retrying..."; \
+        if [ $i -eq 3 ]; then \
+          echo "ERROR: Failed to download essential models after 3 attempts"; \
+          exit 1; \
+        fi; \
+        sleep 5; \
+      fi; \
+    done
 
 # Directly download EasyOCR models during build
-RUN cd /app/models && \
-    echo "Downloading EasyOCR models..." && \
-    wget -q -O craft_mlt_25k.pth https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth || echo "Failed to download craft_mlt_25k.pth but continuing" && \
-    wget -q -O english_g2.pth https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth || echo "Failed to download english_g2.pth but continuing" && \
-    echo "EasyOCR model download attempts complete. Listing models:" && \
-    ls -la /app/models/
+RUN for i in 1 2 3; do \
+      echo "Download attempt $i for EasyOCR models"; \
+      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/craft_mlt_25k.pth https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth && \
+      wget -q --retry-connrefused --waitretry=5 --read-timeout=30 --timeout=30 -t 3 -O /app/models/english_g2.pth https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth && \
+      if [ -s /app/models/craft_mlt_25k.pth ] && [ -s /app/models/english_g2.pth ]; then \
+        echo "EasyOCR models downloaded successfully"; \
+        ls -la /app/models/; \
+        break; \
+      else \
+        echo "EasyOCR download failed, retrying..."; \
+        if [ $i -eq 3 ]; then \
+          echo "ERROR: Failed to download EasyOCR models after 3 attempts"; \
+          exit 1; \
+        fi; \
+        sleep 5; \
+      fi; \
+    done
 
 # Install a specific portable version of Blender (2.93 LTS) which has better compatibility
 RUN mkdir -p /opt/blender && \

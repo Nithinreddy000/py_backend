@@ -61,68 +61,86 @@ def download_file(url, destination):
         return False
 
 def preload_ultralytics_models():
-    """Verify pre-downloaded Ultralytics models with better error handling."""
+    """Preload Ultralytics/YOLO models using Python API with NO downloads allowed."""
     try:
         print("Verifying pre-downloaded Ultralytics models...")
         
         try:
             # Force install specific version of ultralytics
             print("Installing specific ultralytics version...")
-            # Don't use check=True to avoid build failures
-            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "ultralytics==8.0.196"], 
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "ultralytics==8.0.196"], check=True)
             
             # Import after installation to ensure we get the fixed version
             from ultralytics import YOLO
-            print(f"Successfully installed and imported ultralytics")
+            print(f"Successfully installed and imported ultralytics version")
         except Exception as install_err:
             print(f"Error installing ultralytics: {install_err}")
             print("Continuing without preloading YOLO models")
             return False
         
         # Models to verify
-        models = ["yolov8n.pt", "yolov8s.pt", "yolov8n-pose.pt", "yolov8s-pose.pt"]
+        models = ["yolov8n.pt", "yolov8s.pt", "yolov8n-pose.pt"]
         success_count = 0
         
         # First verify all models exist
         missing_models = []
-        available_models = []
         for model_name in models:
             model_path = MODEL_DIR / model_name
             if not model_path.exists():
-                print(f"Model {model_name} not found at {model_path}")
+                print(f"ERROR: Required model {model_name} not found at {model_path}")
                 missing_models.append(model_name)
-            else:
-                print(f"Found model: {model_path}")
-                available_models.append(model_name)
         
-        if not available_models:
-            print(f"ERROR: No models were found. Model directory: {MODEL_DIR}")
-            print(f"Current directory contents: {os.listdir('.')}")
-            if os.path.exists(MODEL_DIR):
-                print(f"Model directory contents: {os.listdir(MODEL_DIR)}")
-            print("Continuing build process despite missing models")
+        if missing_models:
+            print(f"ERROR: {len(missing_models)} models are missing. Docker build must download them first.")
+            print(f"Missing models: {missing_models}")
             return False
         
-        # Then try to load each available model WITHOUT downloading
+        # Then try to load each model WITHOUT downloading
         os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true'
         
-        for model_name in available_models:
+        for model_name in models:
             try:
                 model_path = MODEL_DIR / model_name
                 print(f"Loading model from {model_path}")
                 
-                # Determine the task type based on model name
-                task = 'pose' if 'pose' in model_name else 'detect'
-                model = YOLO(str(model_path), task=task)
+                # Specify the task based on model name
+                task = None
+                if "pose" in model_name:
+                    task = "pose"
+                
+                # Load the model with explicit task where needed
+                if task:
+                    model = YOLO(str(model_path), task=task)
+                else:
+                    model = YOLO(str(model_path))
                 print(f"Successfully loaded {model_name}")
-                success_count += 1
+                
+                # Create a minimal test image
+                test_img_path = "test_image.jpg"
+                with open(test_img_path, "wb") as f:
+                    f.write(b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x03\x02\x02\x03\x02\x02\x03\x03\x03\x03\x04\x03\x03\x04\x05\x08\x05\x05\x04\x04\x05\n\x07\x07\x06\x08\x0c\n\x0c\x0c\x0b\n\x0b\x0b\r\x0e\x12\x10\r\x0e\x11\x0e\x0b\x0b\x10\x16\x10\x11\x13\x14\x15\x15\x15\x0c\x0f\x17\x18\x16\x14\x18\x12\x14\x15\x14\xff\xdb\x00C\x01\x03\x04\x04\x05\x04\x05\t\x05\x05\t\x14\r\x0b\r\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\xff\xc2\x00\x11\x08\x00\x01\x00\x01\x03\x01\x11\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n\xff\xc4\x00\x14\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x10\x03\x10\x00\x00\x01\x95\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01\x05\x02\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x01\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x01\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x06?\x02\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?!\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x00\x03\x00\x00\x00\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x10\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?\x10\x00\xff\xd9')
+                
+                # Run a minimal prediction to cache the model in memory
+                try:
+                    result = model(test_img_path)
+                    print(f"Successfully loaded and tested {model_name}")
+                    success_count += 1
+                except Exception as pred_err:
+                    print(f"Warning: Could not run prediction with {model_name}: {pred_err}")
+                    print(f"Model was loaded but may not be fully initialized")
+                    # Consider this a success as we at least loaded the model
+                    success_count += 1
+                
+                # Clean up the test image
+                try:
+                    os.remove(test_img_path)
+                except:
+                    pass
                 
             except Exception as model_error:
-                print(f"Could not load {model_name}: {model_error}")
-                print("This error is not critical for the build process")
+                print(f"ERROR: Could not load {model_name}: {model_error}")
         
-        print(f"Ultralytics models verification completed. Loaded {success_count}/{len(available_models)} models")
+        print(f"Ultralytics models verification completed. Loaded {success_count}/{len(models)} models")
         return success_count > 0
     except Exception as e:
         print(f"Error verifying Ultralytics models: {e}")
@@ -130,7 +148,7 @@ def preload_ultralytics_models():
         return False
 
 def preload_easyocr():
-    """Verify pre-downloaded EasyOCR models with better error handling."""
+    """Verify pre-downloaded EasyOCR models."""
     try:
         print("Verifying pre-downloaded EasyOCR models...")
         
@@ -138,49 +156,33 @@ def preload_easyocr():
         craft_path = MODEL_DIR / "craft_mlt_25k.pth"
         english_path = MODEL_DIR / "english_g2.pth"
         
-        missing_models = []
         if not craft_path.exists():
-            print(f"CRAFT detection model not found at {craft_path}")
-            missing_models.append("craft_mlt_25k.pth")
-        else:
-            print(f"Found EasyOCR detection model: {craft_path}")
-            
-        if not english_path.exists():
-            print(f"English recognition model not found at {english_path}")
-            missing_models.append("english_g2.pth")
-        else:
-            print(f"Found EasyOCR recognition model: {english_path}")
-        
-        if missing_models:
-            print(f"Missing EasyOCR models: {missing_models}")
-            print("Continuing build process despite missing models")
+            print(f"ERROR: CRAFT detection model not found at {craft_path}")
             return False
             
-        try:
-            # Force install specific easyocr version (without failing the build)
-            print("Installing specific easyocr version...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "easyocr==1.6.2"],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if not english_path.exists():
+            print(f"ERROR: English recognition model not found at {english_path}")
+            return False
             
-            try:
-                import easyocr
-                print("Successfully imported easyocr")
-            except ImportError:
-                print("Failed to import easyocr after installation, continuing anyway")
-                return False
+        print(f"Found EasyOCR detection model: {craft_path}")
+        print(f"Found EasyOCR recognition model: {english_path}")
+        
+        try:
+            # Force install specific easyocr version
+            print("Installing specific easyocr version...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "easyocr==1.6.2"], check=True)
+            import easyocr
+            print("Successfully imported easyocr")
             
             # Set environment variables to prevent downloads
             os.environ['EASYOCR_DOWNLOAD_ENABLED'] = 'false'
             
             print(f"Initializing EasyOCR with model directory: {MODEL_DIR}")
-            # Just try to initialize without actually loading model (which can be slow)
-            print("EasyOCR models found, skipping full initialization during build")
-            print("Models will be initialized at runtime")
+            reader = easyocr.Reader(['en'], model_storage_directory=str(MODEL_DIR))
+            print("Successfully loaded EasyOCR models")
             return True
-            
         except Exception as ocr_error:
-            print(f"Error with EasyOCR: {ocr_error}")
-            print("This error is not critical for the build process")
+            print(f"Error initializing EasyOCR: {ocr_error}")
             return False
             
     except Exception as e:
@@ -189,7 +191,7 @@ def preload_easyocr():
         return False
 
 def main():
-    """Main function to verify all models are pre-downloaded with better error handling."""
+    """Main function to verify all models are pre-downloaded."""
     print("Starting model verification process...")
     
     try:
@@ -198,55 +200,39 @@ def main():
         
         # Verify all required models exist
         print(f"Verifying models in {MODEL_DIR}...")
-        
-        if not os.path.exists(MODEL_DIR):
-            print(f"WARNING: Model directory {MODEL_DIR} does not exist!")
-            print(f"Current directory: {os.getcwd()}")
-            print(f"Directory contents: {os.listdir('.')}")
-            # Create directory and continue
-            os.makedirs(MODEL_DIR, exist_ok=True)
-            
-        found_models = []
         missing_models = []
-        
         for model_name, url in MODEL_URLS.items():
             output_path = MODEL_DIR / model_name
             if output_path.exists():
                 print(f"Found model {model_name} at {output_path}")
-                found_models.append(model_name)
             else:
                 missing_models.append(model_name)
-                print(f"Model {model_name} missing from {output_path}")
+                print(f"ERROR: Model {model_name} missing from {output_path}")
         
         if missing_models:
-            print(f"Some models are missing: {missing_models}")
-            print("This is not critical for the build process")
+            print(f"ERROR: {len(missing_models)} models are missing! Docker must be built with wget commands.")
+            print(f"Missing models: {missing_models}")
+            return 1
         
-        if not found_models:
-            print("WARNING: No models were found at all!")
-            print(f"MODEL_DIR contents: {os.listdir(MODEL_DIR) if os.path.exists(MODEL_DIR) else 'directory does not exist'}")
-        
-        # Verify models can be loaded - continue even if this fails
-        try:
-            yolo_success = preload_ultralytics_models()
-        except Exception as e:
-            print(f"YOLO verification failed but continuing: {e}")
-            yolo_success = False
-            
-        try:
-            ocr_success = preload_easyocr()
-        except Exception as e:
-            print(f"OCR verification failed but continuing: {e}")
-            ocr_success = False
+        # Verify models can be loaded
+        yolo_success = preload_ultralytics_models()
+        ocr_success = preload_easyocr()
         
         if yolo_success and ocr_success:
             print("All models successfully verified!")
         else:
             status = []
-            status.append(f"YOLO models: {'SUCCESS' if yolo_success else 'FAILED'}")
-            status.append(f"OCR models: {'SUCCESS' if ocr_success else 'FAILED'}")
+            if yolo_success:
+                status.append("YOLO models: SUCCESS")
+            else:
+                status.append("YOLO models: FAILED")
+            
+            if ocr_success:
+                status.append("OCR models: SUCCESS")
+            else:
+                status.append("OCR models: FAILED")
+            
             print(f"Model verification partial success: {', '.join(status)}")
-            print("This is not critical for the build process")
         
         print("Model verification completed!")
         # Always return success to ensure build continues
