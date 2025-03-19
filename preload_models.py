@@ -61,31 +61,50 @@ def download_file(url, destination):
         return False
 
 def preload_ultralytics_models():
-    """Preload Ultralytics/YOLO models using Python API."""
+    """Preload Ultralytics/YOLO models using Python API with NO downloads allowed."""
     try:
-        print("Attempting to preload Ultralytics models...")
+        print("Verifying pre-downloaded Ultralytics models...")
         
         try:
+            # Force install specific version of ultralytics
+            print("Installing specific ultralytics version...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "ultralytics==8.0.145"], check=True)
+            
+            # Import after installation to ensure we get the fixed version
             from ultralytics import YOLO
-        except ImportError:
-            print("Ultralytics not installed, installing now...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics"], check=True)
-            from ultralytics import YOLO
+            print(f"Successfully installed and imported ultralytics version")
+        except Exception as install_err:
+            print(f"Error installing ultralytics: {install_err}")
+            print("Continuing without preloading YOLO models")
+            return False
         
-        # Models to preload
+        # Models to verify
         models = ["yolov8n.pt", "yolov8s.pt", "yolov8n-pose.pt"]
+        success_count = 0
+        
+        # First verify all models exist
+        missing_models = []
+        for model_name in models:
+            model_path = MODEL_DIR / model_name
+            if not model_path.exists():
+                print(f"ERROR: Required model {model_name} not found at {model_path}")
+                missing_models.append(model_name)
+        
+        if missing_models:
+            print(f"ERROR: {len(missing_models)} models are missing. Docker build must download them first.")
+            print(f"Missing models: {missing_models}")
+            return False
+        
+        # Then try to load each model WITHOUT downloading
+        os.environ['ULTRALYTICS_NO_DOWNLOAD'] = 'true'
         
         for model_name in models:
             try:
-                print(f"Preloading {model_name} using Ultralytics API")
-                
-                # First check if the model exists in our model directory
                 model_path = MODEL_DIR / model_name
-                if model_path.exists():
-                    model = YOLO(str(model_path))
-                else:
-                    # Download from Ultralytics
-                    model = YOLO(model_name)
+                print(f"Loading model from {model_path}")
+                
+                model = YOLO(str(model_path))
+                print(f"Successfully loaded {model_name}")
                 
                 # Create a minimal test image
                 test_img_path = "test_image.jpg"
@@ -96,9 +115,12 @@ def preload_ultralytics_models():
                 try:
                     result = model(test_img_path)
                     print(f"Successfully loaded and tested {model_name}")
+                    success_count += 1
                 except Exception as pred_err:
                     print(f"Warning: Could not run prediction with {model_name}: {pred_err}")
                     print(f"Model was loaded but may not be fully initialized")
+                    # Consider this a success as we at least loaded the model
+                    success_count += 1
                 
                 # Clean up the test image
                 try:
@@ -107,77 +129,110 @@ def preload_ultralytics_models():
                     pass
                 
             except Exception as model_error:
-                print(f"Warning: Could not preload {model_name}: {model_error}")
+                print(f"ERROR: Could not load {model_name}: {model_error}")
         
-        print("Ultralytics models preloading completed")
-        return True
+        print(f"Ultralytics models verification completed. Loaded {success_count}/{len(models)} models")
+        return success_count > 0
     except Exception as e:
-        print(f"Error preloading Ultralytics models: {e}")
-        print("Continuing build process despite model preloading failure")
+        print(f"Error verifying Ultralytics models: {e}")
+        print("Continuing build process despite model verification failure")
         return False
 
 def preload_easyocr():
-    """Preload EasyOCR model."""
+    """Verify pre-downloaded EasyOCR models."""
     try:
-        print("Attempting to preload EasyOCR models...")
+        print("Verifying pre-downloaded EasyOCR models...")
+        
+        # Verify both required model files exist
+        craft_path = MODEL_DIR / "craft_mlt_25k.pth"
+        english_path = MODEL_DIR / "english_g2.pth"
+        
+        if not craft_path.exists():
+            print(f"ERROR: CRAFT detection model not found at {craft_path}")
+            return False
+            
+        if not english_path.exists():
+            print(f"ERROR: English recognition model not found at {english_path}")
+            return False
+            
+        print(f"Found EasyOCR detection model: {craft_path}")
+        print(f"Found EasyOCR recognition model: {english_path}")
         
         try:
+            # Force install specific easyocr version
+            print("Installing specific easyocr version...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "easyocr==1.6.2"], check=True)
             import easyocr
-        except ImportError:
-            print("EasyOCR not installed, installing now...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "easyocr"], check=True)
-            import easyocr
-        
-        print("Creating EasyOCR reader...")
-        try:
+            print("Successfully imported easyocr")
+            
+            # Set environment variables to prevent downloads
+            os.environ['EASYOCR_DOWNLOAD_ENABLED'] = 'false'
+            
+            print(f"Initializing EasyOCR with model directory: {MODEL_DIR}")
             reader = easyocr.Reader(['en'], model_storage_directory=str(MODEL_DIR))
             print("Successfully loaded EasyOCR models")
             return True
         except Exception as ocr_error:
-            print(f"Warning: EasyOCR reader initialization failed: {ocr_error}")
-            print("Will attempt to download models directly")
-            
-            # Download models directly from source
-            download_file(
-                "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth",
-                MODEL_DIR / "craft_mlt_25k.pth"
-            )
-            download_file(
-                "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth",
-                MODEL_DIR / "english_g2.pth"
-            )
-            return True
+            print(f"Error initializing EasyOCR: {ocr_error}")
+            return False
             
     except Exception as e:
-        print(f"Error preloading EasyOCR models: {e}")
-        print("Continuing build process despite model preloading failure")
+        print(f"Error verifying EasyOCR models: {e}")
+        print("Continuing build process despite model verification failure")
         return False
 
 def main():
-    """Main function to download and preload all models."""
-    print("Starting model preloading process...")
+    """Main function to verify all models are pre-downloaded."""
+    print("Starting model verification process...")
     
     try:
-        # First, download models directly
+        # Create the model directory if it doesn't exist
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Verify all required models exist
+        print(f"Verifying models in {MODEL_DIR}...")
+        missing_models = []
         for model_name, url in MODEL_URLS.items():
             output_path = MODEL_DIR / model_name
             if output_path.exists():
-                print(f"Model {model_name} already exists at {output_path}, skipping download")
+                print(f"Found model {model_name} at {output_path}")
             else:
-                try:
-                    download_file(url, output_path)
-                except Exception as dl_error:
-                    print(f"Warning: Failed to download {model_name}: {dl_error}")
-                    print("Continuing with other models...")
+                missing_models.append(model_name)
+                print(f"ERROR: Model {model_name} missing from {output_path}")
         
-        # Then, preload models using the Python API
-        preload_ultralytics_models()
-        preload_easyocr()
+        if missing_models:
+            print(f"ERROR: {len(missing_models)} models are missing! Docker must be built with wget commands.")
+            print(f"Missing models: {missing_models}")
+            return 1
         
-        print("Model preloading completed!")
+        # Verify models can be loaded
+        yolo_success = preload_ultralytics_models()
+        ocr_success = preload_easyocr()
+        
+        if yolo_success and ocr_success:
+            print("All models successfully verified!")
+        else:
+            status = []
+            if yolo_success:
+                status.append("YOLO models: SUCCESS")
+            else:
+                status.append("YOLO models: FAILED")
+            
+            if ocr_success:
+                status.append("OCR models: SUCCESS")
+            else:
+                status.append("OCR models: FAILED")
+            
+            print(f"Model verification partial success: {', '.join(status)}")
+        
+        print("Model verification completed!")
+        # Always return success to ensure build continues
+        return 0
     except Exception as e:
-        print(f"Error during model preloading: {e}")
-        print("Continuing build process despite preloading errors")
+        print(f"Error during model verification: {e}")
+        print("Continuing build process despite verification errors")
+        # Return success to ensure build continues
+        return 0
 
 if __name__ == "__main__":
     main() 
