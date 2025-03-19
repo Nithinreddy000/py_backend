@@ -63,58 +63,121 @@ def download_file(url, destination):
 def preload_ultralytics_models():
     """Preload Ultralytics/YOLO models using Python API."""
     try:
-        from ultralytics import YOLO
+        print("Attempting to preload Ultralytics models...")
+        
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            print("Ultralytics not installed, installing now...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics"], check=True)
+            from ultralytics import YOLO
         
         # Models to preload
         models = ["yolov8n.pt", "yolov8s.pt", "yolov8n-pose.pt"]
         
         for model_name in models:
-            print(f"Preloading {model_name} using Ultralytics API")
-            model = YOLO(model_name)
-            # Perform a test prediction to ensure the model is loaded
-            test_img_path = "test_image.jpg"
-            with open(test_img_path, "wb") as f:
-                f.write(b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x03\x02\x02\x03\x02\x02\x03\x03\x03\x03\x04\x03\x03\x04\x05\x08\x05\x05\x04\x04\x05\n\x07\x07\x06\x08\x0c\n\x0c\x0c\x0b\n\x0b\x0b\r\x0e\x12\x10\r\x0e\x11\x0e\x0b\x0b\x10\x16\x10\x11\x13\x14\x15\x15\x15\x0c\x0f\x17\x18\x16\x14\x18\x12\x14\x15\x14\xff\xdb\x00C\x01\x03\x04\x04\x05\x04\x05\t\x05\x05\t\x14\r\x0b\r\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\xff\xc2\x00\x11\x08\x00\x01\x00\x01\x03\x01\x11\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n\xff\xc4\x00\x14\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x10\x03\x10\x00\x00\x01\x95\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01\x05\x02\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x01\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x01\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x06?\x02\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?!\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x00\x03\x00\x00\x00\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x10\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?\x10\x00\xff\xd9')
-            
-            result = model(test_img_path)
-            print(f"Successfully loaded and tested {model_name}")
-            
-        print("All Ultralytics models preloaded")
+            try:
+                print(f"Preloading {model_name} using Ultralytics API")
+                
+                # First check if the model exists in our model directory
+                model_path = MODEL_DIR / model_name
+                if model_path.exists():
+                    model = YOLO(str(model_path))
+                else:
+                    # Download from Ultralytics
+                    model = YOLO(model_name)
+                
+                # Create a minimal test image
+                test_img_path = "test_image.jpg"
+                with open(test_img_path, "wb") as f:
+                    f.write(b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x03\x02\x02\x03\x02\x02\x03\x03\x03\x03\x04\x03\x03\x04\x05\x08\x05\x05\x04\x04\x05\n\x07\x07\x06\x08\x0c\n\x0c\x0c\x0b\n\x0b\x0b\r\x0e\x12\x10\r\x0e\x11\x0e\x0b\x0b\x10\x16\x10\x11\x13\x14\x15\x15\x15\x0c\x0f\x17\x18\x16\x14\x18\x12\x14\x15\x14\xff\xdb\x00C\x01\x03\x04\x04\x05\x04\x05\t\x05\x05\t\x14\r\x0b\r\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\x14\xff\xc2\x00\x11\x08\x00\x01\x00\x01\x03\x01\x11\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\n\xff\xc4\x00\x14\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x10\x03\x10\x00\x00\x01\x95\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01\x05\x02\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x01\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x01\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x06?\x02\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?!\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x00\x03\x00\x00\x00\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x03\x01\x01?\x10\x00\xff\xc4\x00\x14\x11\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x02\x01\x01?\x10\x00\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x08\x01\x01\x00\x01?\x10\x00\xff\xd9')
+                
+                # Run a minimal prediction to cache the model in memory
+                try:
+                    result = model(test_img_path)
+                    print(f"Successfully loaded and tested {model_name}")
+                except Exception as pred_err:
+                    print(f"Warning: Could not run prediction with {model_name}: {pred_err}")
+                    print(f"Model was loaded but may not be fully initialized")
+                
+                # Clean up the test image
+                try:
+                    os.remove(test_img_path)
+                except:
+                    pass
+                
+            except Exception as model_error:
+                print(f"Warning: Could not preload {model_name}: {model_error}")
+        
+        print("Ultralytics models preloading completed")
         return True
     except Exception as e:
         print(f"Error preloading Ultralytics models: {e}")
+        print("Continuing build process despite model preloading failure")
         return False
 
 def preload_easyocr():
     """Preload EasyOCR model."""
     try:
-        import easyocr
+        print("Attempting to preload EasyOCR models...")
         
-        print("Preloading EasyOCR models")
-        reader = easyocr.Reader(['en'])
-        print("Successfully loaded EasyOCR models")
-        return True
+        try:
+            import easyocr
+        except ImportError:
+            print("EasyOCR not installed, installing now...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "easyocr"], check=True)
+            import easyocr
+        
+        print("Creating EasyOCR reader...")
+        try:
+            reader = easyocr.Reader(['en'], model_storage_directory=str(MODEL_DIR))
+            print("Successfully loaded EasyOCR models")
+            return True
+        except Exception as ocr_error:
+            print(f"Warning: EasyOCR reader initialization failed: {ocr_error}")
+            print("Will attempt to download models directly")
+            
+            # Download models directly from source
+            download_file(
+                "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/craft_mlt_25k.pth",
+                MODEL_DIR / "craft_mlt_25k.pth"
+            )
+            download_file(
+                "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.pth",
+                MODEL_DIR / "english_g2.pth"
+            )
+            return True
+            
     except Exception as e:
         print(f"Error preloading EasyOCR models: {e}")
+        print("Continuing build process despite model preloading failure")
         return False
 
 def main():
     """Main function to download and preload all models."""
     print("Starting model preloading process...")
     
-    # First, download models directly
-    for model_name, url in MODEL_URLS.items():
-        output_path = MODEL_DIR / model_name
-        if output_path.exists():
-            print(f"Model {model_name} already exists at {output_path}, skipping download")
-        else:
-            download_file(url, output_path)
-    
-    # Then, preload models using the Python API
-    preload_ultralytics_models()
-    preload_easyocr()
-    
-    print("Model preloading completed!")
+    try:
+        # First, download models directly
+        for model_name, url in MODEL_URLS.items():
+            output_path = MODEL_DIR / model_name
+            if output_path.exists():
+                print(f"Model {model_name} already exists at {output_path}, skipping download")
+            else:
+                try:
+                    download_file(url, output_path)
+                except Exception as dl_error:
+                    print(f"Warning: Failed to download {model_name}: {dl_error}")
+                    print("Continuing with other models...")
+        
+        # Then, preload models using the Python API
+        preload_ultralytics_models()
+        preload_easyocr()
+        
+        print("Model preloading completed!")
+    except Exception as e:
+        print(f"Error during model preloading: {e}")
+        print("Continuing build process despite preloading errors")
 
 if __name__ == "__main__":
     main() 

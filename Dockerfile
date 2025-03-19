@@ -63,13 +63,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir opencv-contrib-python-headless==4.7.0.72 && \
     pip install --no-cache-dir -r requirements.txt
 
-# Install FFmpeg with GPU acceleration support if available
+# Install FFmpeg directly from default repositories (avoid PPA that's causing errors)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common && \
-    add-apt-repository ppa:savoury1/ffmpeg5 -y && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
     ffmpeg \
+    libavcodec-extra \
+    libavfilter-extra \
     && rm -rf /var/lib/apt/lists/*
 
 # Download spaCy English model
@@ -95,11 +93,10 @@ RUN chmod +x optimized_ffmpeg.py
 # Preload all ML models during build time to avoid runtime delays
 RUN python preload_models.py
 
-# Install additional video processing acceleration libraries
+# Install more conservative set of video acceleration libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    vainfo \
-    intel-media-va-driver-non-free \
-    i965-va-driver-shaders \
+    libva-drm2 \
+    libva2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Test if GPU acceleration is available and optimize FFmpeg settings

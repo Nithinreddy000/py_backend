@@ -29,23 +29,38 @@ def get_ffmpeg_path():
 def get_gpu_encoding_settings():
     """Detect available GPU acceleration and return appropriate FFmpeg parameters."""
     # Try to detect GPU acceleration options
-    try:
-        # Check for NVIDIA GPU (NVENC)
-        nvidia_check = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
-        if nvidia_check.returncode == 0:
-            return ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll"]
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
+    print("Checking for GPU acceleration options...")
     
     try:
-        # Check for Intel QuickSync
-        intel_check = subprocess.run(["vainfo"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
-        if intel_check.returncode == 0 and b"VA-API" in intel_check.stdout:
+        # Check if ffmpeg supports h264_nvenc
+        ffmpeg_help = subprocess.run(
+            [get_ffmpeg_path(), "-encoders"], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True,
+            timeout=5
+        )
+        
+        # Check for NVIDIA GPU encoder
+        if "h264_nvenc" in ffmpeg_help.stdout:
+            print("Found NVIDIA GPU encoder (h264_nvenc)")
+            return ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll"]
+        
+        # Check for Intel QuickSync encoder
+        if "h264_qsv" in ffmpeg_help.stdout:
+            print("Found Intel QuickSync encoder (h264_qsv)")
             return ["-c:v", "h264_qsv", "-preset", "veryfast"]
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
+        
+        # Check for VA-API encoder
+        if "h264_vaapi" in ffmpeg_help.stdout:
+            print("Found VA-API encoder (h264_vaapi)")
+            return ["-c:v", "h264_vaapi", "-preset", "faster"]
+        
+    except Exception as e:
+        print(f"Error checking GPU acceleration: {e}")
     
     # Fall back to CPU optimized settings
+    print("Using CPU-optimized encoding (libx264)")
     return ["-c:v", "libx264", "-preset", DEFAULT_PRESET, "-tune", "zerolatency"]
 
 def get_optimized_encoding_command(input_file, output_file, width=1280, height=720, 
