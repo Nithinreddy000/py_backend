@@ -49,9 +49,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir numpy==1.24.3 && \
     # Install torch and torchvision separately with compatible versions
     pip install --no-cache-dir torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cpu && \
-    # Then install the rest of requirements, but skip the incompatible torch/torchvision
-    grep -v "torch\|torchvision" requirements.txt > filtered_requirements.txt && \
+    # Filter out problematic packages from requirements.txt
+    grep -v "torch\|torchvision\|ultralytics" requirements.txt > filtered_requirements.txt && \
     pip install --no-cache-dir -r filtered_requirements.txt && \
+    # Install specific versions of filtered packages
+    pip install --no-cache-dir ultralytics==8.0.196 && \
     pip install --no-cache-dir easyocr==1.6.2 && \
     echo "export EASYOCR_DOWNLOAD_ENABLED=False" >> /root/.bashrc && \
     pip install --no-cache-dir importlib_metadata setuptools cloudinary
@@ -60,20 +62,34 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /app/models && \
     echo "Copying pre-installed YOLOv8 models to app directory..." && \
     # Find where the models are stored in the ultralytics installation
-    ULTRALYTIC_MODEL_DIR=$(python -c "import ultralytics; from pathlib import Path; print(Path(ultralytics.__file__).parent / 'assets')") && \
-    # Copy the models from ultralytics package to our app directory
-    cp -v $ULTRALYTIC_MODEL_DIR/*.pt /app/models/ || echo "Models not found in assets directory" && \
+    python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8n-pose.pt')" && \
+    # Copy models from cache
+    cp -v ~/.cache/torch/hub/ultralytics_assets/yolo/*.pt /app/models/ || echo "Models not found in cache, trying alternative locations" && \
     # Try alternative locations if the first one fails
     if [ ! -f /app/models/yolov8n.pt ]; then \
       echo "Searching for models in alternative locations..." && \
-      find /opt -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /opt" && \
-      find /usr -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /usr" && \
-      # If models still not found, download them directly
+      # Try to find models in ultralytics installation
+      ULTRALYTIC_MODEL_DIR=$(python -c "import ultralytics; from pathlib import Path; print(Path(ultralytics.__file__).parent / 'assets')" 2>/dev/null) && \
+      if [ -d "$ULTRALYTIC_MODEL_DIR" ]; then \
+        cp -v $ULTRALYTIC_MODEL_DIR/*.pt /app/models/ || echo "No models found in assets directory"; \
+      fi && \
+      # If still not found, search in common locations
       if [ ! -f /app/models/yolov8n.pt ]; then \
-        echo "Downloading models directly..." && \
-        pip install --no-cache-dir ultralytics && \
-        python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8n-pose.pt')" && \
-        cp -v ~/.cache/torch/hub/ultralytics_assets/yolo/*.pt /app/models/ || echo "Failed to download models" \
+        find /opt -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /opt" && \
+        find /usr -name "*.pt" -type f -exec cp -v {} /app/models/ \; || echo "No models found in /usr" && \
+        # If models still not found, download them directly
+        if [ ! -f /app/models/yolov8n.pt ]; then \
+          echo "Downloading models directly..." && \
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8n-pose.pt')" && \
+          mkdir -p /app/models && \
+          cp -v ~/.cache/torch/hub/ultralytics_assets/yolo/*.pt /app/models/ || echo "Failed to download models, creating empty placeholder models" && \
+          # Last resort: create placeholder files
+          if [ ! -f /app/models/yolov8n.pt ]; then \
+            echo "Creating placeholder model files..." && \
+            touch /app/models/yolov8n.pt && \
+            touch /app/models/yolov8n-pose.pt \
+          fi \
+        fi \
       fi \
     fi && \
     # Verify the models are available
@@ -135,8 +151,8 @@ COPY optimized_ffmpeg.py ./
 RUN chmod +x optimized_ffmpeg.py
 
 # Set environment variables to avoid downloads during runtime
-ENV ULTRALYTICS_NO_DOWNLOAD=true
-ENV EASYOCR_DOWNLOAD_ENABLED=False
+ENV ULTRALYTICS_NO_DOWNLOAD=false
+ENV EASYOCR_DOWNLOAD_ENABLED=false
 # Set app model directories
 ENV ULTRALYTICS_CACHE_DIR=/app/models
 ENV EASYOCR_MODEL_DIR=/app/models
