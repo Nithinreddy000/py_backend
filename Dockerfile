@@ -39,6 +39,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx265-dev \
     libvpx-dev \
     libwebp-dev \
+    # Required for building PyMuPDF
+    pkg-config \
+    libfreetype6-dev \
+    libharfbuzz-dev \
+    zlib1g-dev \
+    libjbig2dec0-dev \
+    libjpeg8-dev \
+    libopenjp2-7-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create models directory structure
@@ -64,12 +72,24 @@ RUN pip install --no-cache-dir \
     fastapi==0.109.2
 
 # Stage 4: Install data processing libraries
+# Split PyMuPDF installation separately since it requires compilation
 RUN pip install --no-cache-dir \
-    pdfplumber==0.9.0 \
-    PyMuPDF==1.20.2 \
     pandas==1.5.3 \
     scikit-learn==1.2.2 \
     scipy==1.10.1
+
+# Stage 4.1: Install PyMuPDF and pdfplumber with proper build environment
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    && pip install --no-cache-dir pdfplumber==0.9.0 && \
+    # Install specific version of PyMuPDF with build dependencies properly installed
+    CC="gcc" CFLAGS="-fPIC" pip install --no-cache-dir --verbose PyMuPDF==1.20.2 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Stage 5: Install ML dependencies with strict versions to avoid conflicts
 RUN pip install --no-cache-dir \
