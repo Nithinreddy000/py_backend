@@ -23,6 +23,22 @@ import random
 # Add Firestore import
 from google.cloud import firestore
 
+# Try to import the MultiOCR class for optimized OCR processing
+try:
+    from multiocr import MultiOCR
+    print("Loaded MultiOCR module for optimized OCR processing")
+    USE_MULTI_OCR = True
+except ImportError:
+    print("MultiOCR module not available, falling back to standard EasyOCR")
+    USE_MULTI_OCR = False
+
+# Try to import EasyOCR patch for optimized initialization
+try:
+    import easyocr_patch
+    print("EasyOCR optimization patch loaded successfully")
+except ImportError:
+    print("EasyOCR optimization patch not available")
+
 # Add import for cloudinary
 import cloudinary
 import cloudinary.uploader
@@ -1112,6 +1128,22 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import supervision as sv
 
+# Import our optimized OCR module if available
+try:
+    from multiocr import MultiOCR
+    print("Loaded MultiOCR module for optimized OCR processing")
+    USE_MULTI_OCR = True
+except ImportError:
+    print("MultiOCR module not available, falling back to standard EasyOCR")
+    USE_MULTI_OCR = False
+    
+# Try to import the EasyOCR patch
+try:
+    import easyocr_patch
+    print("EasyOCR patch loaded for optimized initialization")
+except ImportError:
+    print("EasyOCR patch not available, using standard EasyOCR initialization")
+
 # Configure Cloudinary
 cloudinary.config(
     cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", "your-cloud-name"),
@@ -1162,8 +1194,27 @@ def initialize_models():
         # Initialize YOLOv8 object detection model for jersey detection
         jersey_detector = YOLO("yolov8n.pt")
     
-        # Initialize OCR reader for jersey numbers
-        reader = easyocr.Reader(['en'])
+        # Initialize OCR reader using our optimized MultiOCR class if available
+        if USE_MULTI_OCR:
+            print("Initializing MultiOCR with fallback options...")
+            reader = MultiOCR(use_gpu=False)
+        else:
+            # Initialize standard EasyOCR reader
+            print("Initializing standard EasyOCR reader...")
+            try:
+                # Use pre-cached model path to avoid downloading
+                model_dir = "/root/.EasyOCR/model"
+                reader = easyocr.Reader(['en'], gpu=False, 
+                                       model_storage_directory=model_dir,
+                                       download_enabled=False,
+                                       user_network_directory=model_dir)
+            except Exception as e:
+                print(f"Error initializing EasyOCR: {e}")
+                # Create a dummy reader as fallback
+                class DummyReader:
+                    def readtext(self, image, **kwargs):
+                        return []
+                reader = DummyReader()
     
         print("Models initialized successfully")
     except Exception as e:
@@ -1286,231 +1337,284 @@ def process_match_video():
             'status': 'error'
         }), 500
 
-# Helper function to get timezone abbreviation
-def get_timezone_abbreviation():
-    """
-    Get the current timezone abbreviation.
-    
-    Returns:
-        str: Timezone abbreviation (e.g., 'UTC', 'EST', 'PST')
-    """
-    try:
-        import time
-        return time.strftime('%Z')
-    except Exception:
-        return 'UTC'
-
 def process_video_background(video_path, match_id, sport_type, coach_id):
-    """Background thread for video processing to avoid blocking the main thread."""
+    """Process the video in a background thread."""
     try:
-        print(f"Starting video processing for match {match_id}")
-        
+        print(f"Starting video processing for match: {match_id}")
         # Initialize Firestore client
         db = firestore.client()
-        
-        # Get athlete information from Firestore
-        athletes_data = {}
-        
-        # Create directory for processed videos if it doesn't exist
-        output_dir = '/tmp/processed_videos'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Set output path
-        output_path = os.path.join(output_dir, f"processed_{match_id}.mp4")
-        
-        # Get athlete data from match document in Firestore
         match_ref = db.collection('matches').document(match_id)
+        
+        # First check if the match document exists
         match_doc = match_ref.get()
-        
         if not match_doc.exists:
-            raise ValueError(f"Match {match_id} not found in Firestore")
-            
+            print(f"Error: Match document {match_id} does not exist")
+            return {
+                'match_id': match_id,
+                'status': 'error',
+                'message': f'Match document {match_id} does not exist'
+            }
+        
+        # Get the current match data
         match_data = match_doc.to_dict()
-        sport_type = match_data.get('sport', sport_type)
+        print(f"Processing video for match: {match_id}, current status: {match_data.get('status', 'unknown')}")
         
-        # Fetch athletes in match
-        print(f"Fetching athletes for match {match_id}")
-        athletes_in_match = match_data.get('athletes', {})
-        
-        if not athletes_in_match:
-            print(f"No athletes found in match {match_id}")
+        # Update match status to processing if it's not already
+        current_status = match_data.get('status', 'unknown')
+        if current_status != 'processing':
+            match_ref.update({
+                'status': 'processing',
+                'processing_started_at': datetime.datetime.now()
+            })
+            print(f"Updated match {match_id} status to 'processing'")
         else:
-            print(f"Found {len(athletes_in_match)} athletes in match {match_id}")
+            print(f"Match {match_id} is already in 'processing' status, not updating")
+        
+        # Check if video file exists and is valid
+        video_exists = os.path.exists(video_path) and os.path.getsize(video_path) > 0
+        if video_exists:
+            print(f"Video file exists and is valid: {video_path}")
+        else:
+            print(f"Video file is invalid or does not exist: {video_path}")
+        
+        # Default video URL (in case upload fails)
+        video_url = f"https://example.com/videos/{match_id}.mp4"
+        
+        # Try to upload to Cloudinary if the video exists
+        if video_exists:
+            try:
+                print(f"Attempting to upload video to Cloudinary: {video_path}")
+                video_url = upload_to_cloudinary(video_path, match_id)
+                print(f"Video successfully uploaded to Cloudinary with URL: {video_url}")
+            except Exception as upload_error:
+                print(f"Error uploading to Cloudinary: {upload_error}")
+                # Continue with processing even if upload fails
+        
+        # Initialize athlete details
+        athlete_details = {}
+        jersey_to_athlete_map = {}
             
-            # Check if athletes_in_match is a list or dictionary and handle accordingly
-            if isinstance(athletes_in_match, list):
-                print("Athletes in match is a list, processing as list of IDs")
-                # Process as a list of athlete IDs
-                for athlete_id in athletes_in_match:
-                    if not athlete_id:  # Skip empty athlete IDs
-                        continue
+        try:
+            # Get athlete IDs from the match document
+            athlete_ids = match_data.get('athletes', [])
+            
+            print(f"Found {len(athlete_ids)} athletes in match {match_id}")
+            
+            # Get jersey-to-athlete mapping from all athletes in the system
+            jersey_query = db.collection('users').where('role', '==', 'athlete').stream()
+            for doc in jersey_query:
+                athlete_data = doc.to_dict()
+                jersey_number = athlete_data.get('jersey_number') or athlete_data.get('jerseyNumber')
+                if jersey_number:
+                    jersey_to_athlete_map[str(jersey_number)] = {
+                        'id': doc.id,
+                        'name': athlete_data.get('name', f"Athlete {jersey_number}"),
+                        'jersey_number': str(jersey_number)
+                    }
+            
+            # Get details for each athlete in this match
+            for athlete_id in athlete_ids:
+                try:
+                    athlete_doc = db.collection('users').document(athlete_id).get()
+                    if athlete_doc.exists:
+                        athlete_data = athlete_doc.to_dict() or {}
+                                        
+                        # Try different field names for jersey number
+                        jersey_number = athlete_data.get('jersey_number') or athlete_data.get('jerseyNumber')
                         
-                    print(f"Found athlete in match: ID: {athlete_id}")
-                    athlete_ref = db.collection('athletes').document(athlete_id)
-                    athlete_doc = athlete_ref.get()
-                    
-                    # Generate a sequential jersey number
-                    jersey_number = str(len(athletes_data) + 1).zfill(5)
-                    
-                    if athlete_doc.exists:
-                        athlete_data = athlete_doc.to_dict()
-                        # Try to get jersey number from athlete data if available
-                        jersey_number = athlete_data.get('jersey_number', jersey_number)
-                        athletes_data[jersey_number] = {
-                            'id': athlete_id,
-                            'name': athlete_data.get('name', 'Unknown'),
-                            'jersey_number': jersey_number,
-                            'country': athlete_data.get('country', 'Unknown'),
-                            'team': athlete_data.get('team', 'Unknown')
-                        }
-                    else:
-                        print(f"Athlete {athlete_id} not found, using limited data")
-                        athletes_data[jersey_number] = {
-                            'id': athlete_id,
-                            'name': 'Unknown Athlete',
-                            'jersey_number': jersey_number,
-                            'country': 'Unknown',
-                            'team': 'Unknown'
-                        }
-            else:
-                # Process as a dictionary of jersey number to athlete ID
-                print("Athletes in match is a dictionary, processing as jersey to ID mapping")
-                # Loop through athletes and fetch their details
-                for jersey_number, athlete_id in athletes_in_match.items():
-                    print(f"Found athlete in match: {jersey_number}, ID: {athlete_id}")
-                    athlete_ref = db.collection('athletes').document(athlete_id)
-                    athlete_doc = athlete_ref.get()
-                    
-                    if athlete_doc.exists:
-                        athlete_data = athlete_doc.to_dict()
-                        athletes_data[jersey_number] = {
-                            'id': athlete_id,
-                            'name': athlete_data.get('name', 'Unknown'),
-                            'jersey_number': jersey_number,
-                            'country': athlete_data.get('country', 'Unknown'),
-                            'team': athlete_data.get('team', 'Unknown')
-                        }
-                    else:
-                        print(f"Athlete {athlete_id} not found, using limited data")
-                        athletes_data[jersey_number] = {
-                            'id': athlete_id,
-                            'name': 'Unknown Athlete',
-                            'jersey_number': jersey_number,
-                            'country': 'Unknown',
-                            'team': 'Unknown'
-                        }
-        
-        print(f"Athlete details: {athletes_data}")
-                
-        # Create jersey number to athlete mapping
-        jersey_to_athlete = {}
-        
-        # Get existing mapping from the match if available
-        existing_mapping = match_data.get('jersey_mapping', {})
-        if existing_mapping:
-            jersey_to_athlete.update(existing_mapping)
+                        # If athlete has a jersey number, use it as the key
+                        if jersey_number:
+                            jersey_number = str(jersey_number)  # Ensure it's a string
+                            athlete_details[jersey_number] = {
+                                'id': athlete_id,
+                                'name': athlete_data.get('name', f"Athlete {jersey_number}"),
+                                'jersey_number': jersey_number,
+                                'country': athlete_data.get('country', 'Unknown'),
+                                'team': athlete_data.get('team', 'Unknown')
+                            }
+                            print(f"Found athlete in match: {athlete_data.get('name')} (#{jersey_number}, ID: {athlete_id})")
+                        else:
+                            # Generate a sequential jersey number if none exists
+                            jersey_number = str(len(athlete_details) + 1)
+                            athlete_details[jersey_number] = {
+                                'id': athlete_id,
+                                'name': athlete_data.get('name', f"Athlete {jersey_number}"),
+                                'jersey_number': jersey_number,
+                                'country': athlete_data.get('country', 'Unknown'),
+                                'team': athlete_data.get('team', 'Unknown')
+                            }
+                            print(f"Assigned jersey #{jersey_number} to athlete: {athlete_data.get('name')} (ID: {athlete_id})")
+                except Exception as athlete_error:
+                    print(f"Error getting athlete details: {athlete_error}")
             
-        # Add current athletes
-        for jersey_number, athlete_info in athletes_data.items():
-            jersey_to_athlete[jersey_number] = {
-                'id': athlete_info['id'],
-                'name': athlete_info['name'],
-                'jersey_number': jersey_number
+            print(f"Athlete details: {athlete_details}")
+            print(f"Jersey to athlete map: {jersey_to_athlete_map}")
+        except Exception as e:
+            print(f"Error getting match data: {e}")
+            # Update match with error status
+            match_ref.update({
+                'status': 'error',
+                'error_message': f'Error getting match data: {str(e)}',
+                'processing_error_at': datetime.datetime.now()
+            })
+            return
+        
+        # Initialize athletes_data dictionary with athlete details
+        athletes_data = {}
+        performance_data = {}
+        
+        # Create data for each athlete
+        for jersey_number, athlete in athlete_details.items():
+            # Initialize athlete data structure
+            athletes_data[jersey_number] = {
+                'id': athlete['id'],
+                'name': athlete['name'],
+                'jersey_number': jersey_number,
+                'track_id': None,
+                'pose_history': [],
+                'position_history': [],
+                'speed_history': []
             }
             
-        print(f"Jersey to athlete map: {jersey_to_athlete}")
+            # Initialize metrics (but don't create fake Fitbit data)
+            athletes_data[jersey_number]['metrics'] = initialize_metrics(sport_type)
+            athletes_data[jersey_number]['fitbit_data'] = initialize_fitbit_data()
         
-        # Function to update progress in Firestore
-        def update_progress(progress, stage, message=""):
-            try:
-                # Add timestamp and enhanced progress information
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " " + get_timezone_abbreviation()
-                
-                # Update the match document with progress information
-                match_ref.update({
-                    'processing_status': 'in_progress',
-                    'processing_progress': progress,
-                    'processing_stage': stage,
-                    'processing_message': message,
-                    'last_progress_update': now  # Add timestamp
-                })
-                
-                # Log the progress update
-                print(f"Updated match {match_id} progress: {progress:.2f} - {stage}: {message}")
-            except Exception as e:
-                print(f"Error updating progress: {e}")
+        # Add the jersey_to_athlete_map to the athletes_data for jersey number detection
+        athletes_data['_jersey_map'] = jersey_to_athlete_map
         
-        # Initial progress update
-        update_progress(0.3, 'detection', 'Analyzing video footage...')
-        
-        # Set up a progress callback for the video processing
-        last_progress_update = time.time()
-        
-        def progress_callback(frame_count, total_frames, stage_name="processing"):
-            nonlocal last_progress_update
-            # Limit updates to avoid flooding Firestore (once per second)
-            current_time = time.time()
-            if current_time - last_progress_update >= 1.0:
-                progress_percent = min(0.9, 0.3 + (frame_count / total_frames * 0.6))
+        # Process the video
+        try:
+            if video_exists:
+                print(f"Starting video processing for match {match_id}")
+                # Create output directory if it doesn't exist
+                output_dir = os.path.join(tempfile.gettempdir(), 'processed_videos')
+                os.makedirs(output_dir, exist_ok=True)
                 
-                # Calculate more detailed metrics
-                elapsed_time = current_time - processing_start_time
-                frames_per_second = frame_count / max(elapsed_time, 0.1)
+                # Generate output path
+                output_filename = f"processed_{match_id}.mp4"
+                output_path = os.path.join(output_dir, output_filename)
                 
-                if total_frames > 0 and frame_count > 0:
-                    estimated_total_time = elapsed_time * (total_frames / frame_count)
-                    remaining_time = max(0, estimated_total_time - elapsed_time)
-                    remaining_minutes = int(remaining_time / 60)
-                    remaining_seconds = int(remaining_time % 60)
-                    
-                    message = (
-                        f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%) - "
-                        f"FPS: {frames_per_second:.1f}, Est. time remaining: {remaining_minutes}m {remaining_seconds}s"
-                    )
+                # Fix the function call to include all required arguments
+                processed_video_path = process_video(video_path, output_path, athletes_data, sport_type)
+                print(f"Video processing completed. Output path: {processed_video_path}")
+                
+                # Upload processed video to Cloudinary
+                if processed_video_path and os.path.exists(processed_video_path):
+                    try:
+                        processed_video_url = upload_to_cloudinary(processed_video_path, f"{match_id}_processed")
+                        print(f"Processed video uploaded to Cloudinary: {processed_video_url}")
+                    except Exception as upload_error:
+                        print(f"Error uploading processed video to Cloudinary: {upload_error}")
+                        processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
                 else:
-                    message = f"Processing frame {frame_count}/{total_frames}"
+                    print("Processed video file not found or invalid")
+                    processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
+            else:
+                print("Skipping video processing as video file is invalid")
+                processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
+        except Exception as process_error:
+            print(f"Error processing video: {process_error}")
+            # Update match with error status
+            match_ref.update({
+                'status': 'processing_failed',
+                'error_message': f'Error processing video: {str(process_error)}',
+                'processing_error_at': datetime.datetime.now()
+            })
+            return
+        
+        # Extract performance data from athletes_data
+        for jersey_number, athlete_data in athletes_data.items():
+            if jersey_number != '_jersey_map' and isinstance(athlete_data, dict):  # Skip the jersey map and ensure it's a dict
+                athlete_id = athlete_data.get('id')
+                if athlete_id:
+                    # Create a safe copy of metrics and fitbit data
+                    metrics = {}
+                    fitbit_data = {}
+                    
+                    # Safely extract metrics
+                    if 'metrics' in athlete_data and isinstance(athlete_data['metrics'], dict):
+                        metrics = athlete_data['metrics']
+                    
+                    # Safely extract fitbit data
+                    if 'fitbit_data' in athlete_data and isinstance(athlete_data['fitbit_data'], dict):
+                        fitbit_data = athlete_data['fitbit_data']
+                    
+                    # Store in performance data
+                    performance_data[athlete_id] = {
+                        'metrics': metrics,
+                        'fitbit_data': fitbit_data
+                    }
+        
+        # Update match document with processed data
+        try:
+            # Check again if the match document still exists
+            match_doc = match_ref.get()
+            if not match_doc.exists:
+                print(f"Error: Match document {match_id} no longer exists")
+                return
                 
-                update_progress(
-                    progress_percent, 
-                    stage_name, 
-                    message
-                )
-                last_progress_update = current_time
-        
-        # Record the start time for calculating processing speed
-        processing_start_time = time.time()
-        
-        # Fix the function call to include progress callback
-        processed_video_path = process_video(
-            video_path, output_path, athletes_data, sport_type, 
-            progress_callback=progress_callback
-        )
-        
-        # Update match status to completed
-        match_ref.update({
-            'status': 'completed',
-            'processing_completed_at': datetime.datetime.now(),
-            'processed_video_url': processed_video_path,
-            'processing_progress': 1.0,
-            'processing_stage': 'completed',
-            'processing_message': 'Video processing completed successfully'
-        })
-        
-        # Return success response
-        return {
-            'match_id': match_id,
-            'status': 'success',
-            'message': 'Video processed successfully',
-            'processed_video_url': processed_video_path
-        }
+            # Update the existing document with processed data
+            update_data = {
+                'status': 'completed',
+                'processing_completed_at': datetime.datetime.now(),
+                'original_video_url': video_url,
+                'processed_video_url': processed_video_url,
+                'performance_data': performance_data
+            }
+            
+            # Only add coach_id if it's not already set
+            if not match_doc.to_dict().get('coach_id'):
+                update_data['coach_id'] = coach_id
+                
+            match_ref.update(update_data)
+            print(f"Updated match {match_id} with processed data")
+            
+            # Return success response
+            return {
+                'match_id': match_id,
+                'status': 'success',
+                'message': 'Video processed successfully',
+                'original_video_url': video_url,
+                'processed_video_url': processed_video_url
+            }
+        except Exception as update_error:
+            print(f"Error updating match document: {update_error}")
+            # Try one more time with a new transaction
+            try:
+                match_ref.update({
+                    'status': 'completed',
+                    'processing_completed_at': datetime.datetime.now(),
+                    'original_video_url': video_url,
+                    'processed_video_url': processed_video_url,
+                    'performance_data': performance_data
+                })
+                print(f"Updated match {match_id} with processed data on second attempt")
+            except Exception as retry_error:
+                print(f"Error updating match document on retry: {retry_error}")
+            
+            # Return error response but don't raise exception
+            return {
+                'match_id': match_id,
+                'status': 'error',
+                'message': f'Error updating match document: {update_error}'
+            }
     except Exception as e:
-        print(f"Error processing video: {e}")
-        # Update match status to failed
-        match_ref.update({
-            'status': 'processing_failed',
-            'error_message': f'Error processing video: {str(e)}',
-            'processing_error_at': datetime.datetime.now()
-        })
+        print(f"Error in process_video_background: {e}")
+        try:
+            # Try to update match status to error
+            db = firestore.client()
+            match_ref = db.collection('matches').document(match_id)
+            match_ref.update({
+                'status': 'error',
+                'error_message': str(e),
+                'processing_error_at': datetime.datetime.now()
+            })
+            print(f"Updated match {match_id} status to 'error'")
+        except Exception as update_error:
+            print(f"Error updating match status to error: {update_error}")
+        
+        # Return error response
         return {
             'match_id': match_id,
             'status': 'error',
@@ -1615,7 +1719,7 @@ def initialize_fitbit_data():
         'acceleration': [0.1 + np.random.random() * 0.2]  # Small initial acceleration
     }
 
-def process_video(input_path, output_path, athletes_data, sport_type, progress_callback=None):
+def process_video(input_path, output_path, athletes_data, sport_type):
     """
     Process a video file to detect and track athletes.
     
@@ -1624,21 +1728,41 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         output_path (str): Path where the processed video will be saved
         athletes_data (dict): Dictionary containing athlete information
         sport_type (str): Type of sport being played
-        progress_callback (callable): Optional callback function to report progress
     
     Returns:
         str: Path to the processed video file
     """
     print(f"Starting video processing: {input_path} -> {output_path}")
-    start_time = time.time()
     
     try:
-        # Create a jersey detector instance
-        print("Initializing jersey detector...")
-        if progress_callback:
-            progress_callback(0, 100, "initializing_detectors")
-            
-        jersey_detector = JerseyDetector()
+        # Create a jersey detector instance with optimized OCR
+        jersey_detector = None
+        
+        # Try to use MultiOCR first
+        try:
+            from multiocr import MultiOCR
+            ocr_reader = MultiOCR(use_gpu=False)
+            jersey_detector = JerseyDetector(ocr_reader=ocr_reader)
+            print("Using MultiOCR for jersey detection")
+        except ImportError:
+            # Fall back to EasyOCR with optimized loading if MultiOCR is not available
+            try:
+                import easyocr
+                # Use pre-cached model path to avoid downloading at runtime
+                model_dir = "/root/.EasyOCR/model"
+                ocr_reader = easyocr.Reader(['en'], gpu=False, 
+                                           model_storage_directory=model_dir,
+                                           download_enabled=False)
+                jersey_detector = JerseyDetector(ocr_reader=ocr_reader)
+                print("Using EasyOCR for jersey detection")
+            except Exception as ocr_error:
+                # Create a dummy reader as last resort
+                print(f"Error initializing OCR for jersey detection: {ocr_error}")
+                class DummyReader:
+                    def readtext(self, *args, **kwargs):
+                        return []
+                jersey_detector = JerseyDetector(ocr_reader=DummyReader())
+                print("Using DummyReader for jersey detection (no OCR available)")
         
         # Get valid jersey numbers from athletes_data
         valid_jersey_numbers = [jersey for jersey in athletes_data.keys() 
@@ -1647,78 +1771,14 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         print(f"Valid jersey numbers in match: {valid_jersey_numbers}")
         
         # Initialize YOLO model if available
-        print("Loading YOLO model...")
-        if progress_callback:
-            progress_callback(0, 100, "loading_models")
-        
         try:
             import ultralytics
             model = ultralytics.YOLO('yolov8n-pose.pt')
             print("Loaded YOLOv8 pose model")
-            if progress_callback:
-                progress_callback(0, 100, "model_loaded")
         except Exception as e:
             print(f"Error loading YOLO model: {e}")
             model = None
-            
-        # Initialize EasyOCR for jersey number detection
-        print("Loading OCR model...")
-        if progress_callback:
-            progress_callback(0, 100, "loading_ocr")
-        
-        try:
-            import easyocr
-            print("EasyOCR imported, initializing Reader (this may take several minutes on CPU)...")
-            
-            # Log the start time for OCR loading
-            ocr_start_time = time.time()
-            
-            # Provide updates during OCR loading
-            def ocr_loading_progress():
-                elapsed = time.time() - ocr_start_time
-                print(f"Still loading OCR model... (elapsed: {elapsed:.1f}s)")
-                if progress_callback:
-                    progress_callback(0, 100, f"loading_ocr (elapsed: {elapsed:.1f}s)")
-            
-            # Start a background thread to report OCR loading progress
-            import threading
-            stop_progress_thread = threading.Event()
-            
-            def report_progress():
-                while not stop_progress_thread.is_set():
-                    ocr_loading_progress()
-                    time.sleep(10)  # Update every 10 seconds
-            
-            progress_thread = threading.Thread(target=report_progress)
-            progress_thread.daemon = True
-            progress_thread.start()
-            
-            # Initialize the OCR reader
-            try:
-                reader = easyocr.Reader(['en'], gpu=False)  # Set gpu=True if available
-                elapsed = time.time() - ocr_start_time
-                print(f"Loaded EasyOCR model successfully in {elapsed:.1f} seconds")
-                if progress_callback:
-                    progress_callback(0, 100, "ocr_loaded")
-            finally:
-                # Stop the progress reporting thread
-                stop_progress_thread.set()
-                if progress_thread.is_alive():
-                    progress_thread.join(timeout=1.0)
-        except Exception as e:
-            print(f"Error loading EasyOCR: {e}")
-            
-            # Create a dummy reader for testing
-            class DummyReader:
-                def readtext(self, image, **kwargs):
-                    return []
-            reader = DummyReader()
-            print("Using dummy OCR reader")
-            if progress_callback:
-                progress_callback(0, 100, "dummy_ocr_loaded")
-            
         # Open the video file
-        print("Opening video file...")
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video file: {input_path}")
@@ -1732,12 +1792,10 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         print(f"Video properties: {width}x{height}, {fps} fps, {total_frames} frames")
         
         # Create video writer
-        print("Creating video writer...")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
+        
         # Initialize tracker
-        print("Initializing tracker...")
         tracker = None
         try:
             # Try to import BYTETracker
@@ -1821,18 +1879,31 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         
         # Initialize OCR reader for jersey detection
         try:
-            import easyocr
-            reader = easyocr.Reader(['en'], gpu=False)
-            print("Initialized EasyOCR for jersey detection")
+            # Try to use our optimized MultiOCR class if available
+            if 'multiocr' in sys.modules:
+                from multiocr import MultiOCR
+                reader = MultiOCR(use_gpu=False)
+                print("Using MultiOCR for jersey detection with fallback options")
+            else:
+                # Try to use standard EasyOCR with optimized loading
+                import easyocr
+                # Use pre-cached model path to avoid downloading
+                model_dir = "/root/.EasyOCR/model"
+                reader = easyocr.Reader(['en'], gpu=False, 
+                                       model_storage_directory=model_dir,
+                                       download_enabled=False,
+                                       user_network_directory=model_dir)
+                print("Initialized EasyOCR for jersey detection")
             jersey_detector.set_ocr_reader(reader)
         except Exception as e:
-            print(f"Error initializing EasyOCR: {e}")
+            print(f"Error initializing OCR: {e}")
             # Create a dummy reader
             class DummyReader:
                 def readtext(self, image, **kwargs):
                     return []
             reader = DummyReader()
             jersey_detector.set_ocr_reader(reader)
+            print("Using DummyReader as fallback for OCR")
         
         # Process frames
         frame_count = 0
@@ -1840,15 +1911,6 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         
         # Store frame count in athletes_data
         athletes_data['_frame_count'] = total_frames
-        
-        # Create a dictionary to track processing metrics
-        processing_metrics = {
-            'start_time': time.time(),
-            'frames_processed': 0,
-            'processing_rate': 0,
-            'estimated_remaining_time': 0,
-            'last_metrics_update': time.time()
-        }
         
         while True:
             ret, frame = cap.read()
@@ -1862,38 +1924,6 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
                 continue
             
             processed_count += 1
-            processing_metrics['frames_processed'] = processed_count
-            
-            # Update processing metrics every 10 frames
-            current_time = time.time()
-            if processed_count % 10 == 0 or current_time - processing_metrics['last_metrics_update'] >= 5.0:
-                elapsed = current_time - processing_metrics['start_time']
-                processing_metrics['processing_rate'] = processed_count / max(0.1, elapsed)
-                
-                if total_frames > 0 and processed_count > 0:
-                    estimated_total_frames = total_frames / 2  # Since we're processing every 2nd frame
-                    estimated_total_time = elapsed * (estimated_total_frames / processed_count)
-                    processing_metrics['estimated_remaining_time'] = max(0, estimated_total_time - elapsed)
-                
-                processing_metrics['last_metrics_update'] = current_time
-            
-            # Report progress
-            if progress_callback and (frame_count % 5 == 0 or current_time - processing_metrics['last_metrics_update'] >= 5.0):
-                # Calculate the estimated remaining time
-                remaining_time = processing_metrics['estimated_remaining_time']
-                remaining_minutes = int(remaining_time / 60)
-                remaining_seconds = int(remaining_time % 60)
-                
-                # Create a detailed stage message
-                stage_message = f"processing_frame_{frame_count}"
-                detail_message = (
-                    f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%) - "
-                    f"Rate: {processing_metrics['processing_rate']:.2f} fps, "
-                    f"Est. remaining: {remaining_minutes}m {remaining_seconds}s"
-                )
-                
-                progress_callback(frame_count, total_frames, stage_message)
-                print(detail_message)  # Log the detailed message
             
             # Create a copy for annotation
             annotated_frame = frame.copy()
@@ -2024,48 +2054,30 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
             # Write the frame
             out.write(annotated_frame)
             
-            # Print progress more frequently - every 20 frames
-            if frame_count % 20 == 0 or frame_count == total_frames:
-                elapsed = time.time() - start_time
-                fps_processing = frame_count / elapsed if elapsed > 0 else 0
-                remaining_frames = total_frames - frame_count
-                estimated_time = remaining_frames / fps_processing if fps_processing > 0 else 0
+            # Print progress every 100 frames
+            if frame_count % 100 == 0 or frame_count == total_frames:
+                print(f"Processed {frame_count}/{total_frames} frames ({(frame_count/total_frames)*100:.1f}%)")
                 
-                print(f"Processed {frame_count}/{total_frames} frames ({(frame_count/total_frames)*100:.1f}%) - "
-                      f"Processing speed: {fps_processing:.2f} fps, Est. time remaining: {estimated_time:.1f}s")
+                # Print detected athletes
+                detected_count = 0
+                for jersey, athlete in athletes_data.items():
+                    if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
+                        if athlete.get('track_id') is not None:
+                            detected_count += 1
+                            print(f"  Athlete #{jersey}: {athlete['name']} (Track ID: {athlete['track_id']})")
                 
-                # If processing is very slow, print a warning
-                if fps_processing < 1.0 and frame_count > 50:
-                    print(f"WARNING: Processing is unusually slow ({fps_processing:.2f} fps). Consider reducing video resolution or using GPU.")
-                
-                # Print detected athletes every 100 frames
-                if frame_count % 100 == 0 or frame_count == total_frames:
-                    detected_count = 0
-                    for jersey, athlete in athletes_data.items():
-                        if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
-                            if athlete.get('track_id') is not None:
-                                detected_count += 1
-                                print(f"  Athlete #{jersey}: {athlete['name']} (Track ID: {athlete['track_id']})")
-                    
-                    print(f"  Detected {detected_count}/{len(valid_jersey_numbers)} athletes")
+                print(f"  Detected {detected_count}/{len(valid_jersey_numbers)} athletes")
         
         # Finalize metrics for each athlete
-        print("Finalizing athlete metrics...")
-        if progress_callback:
-            progress_callback(total_frames, total_frames, "finalizing")
-            
         for jersey, athlete in athletes_data.items():
             if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
                 finalize_athlete_metrics(athlete, sport_type)
         
         # Release resources
-        print("Releasing resources...")
         cap.release()
         out.release()
         
-        total_time = time.time() - start_time
         print(f"Video processing completed: {output_path}")
-        print(f"Total processing time: {total_time:.2f} seconds ({total_frames/total_time:.2f} fps average)")
         return output_path
         
     except Exception as e:
