@@ -58,16 +58,21 @@ RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
-# Create the monkey patch for PoseModel in ultralytics
+# First, create a script to inspect ultralytics module structure
+RUN echo 'import inspect, pkgutil; import ultralytics; print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)]); print("Ultralytics structure:", dir(ultralytics))' > /tmp/inspect_ultralytics.py && \
+    python /tmp/inspect_ultralytics.py
+
+# Create the correct monkey patch for PoseModel in ultralytics 8.0.20
 RUN mkdir -p /tmp/patch && \
-    echo 'from ultralytics.models.yolo.pose import PoseModel' > /tmp/patch/patch.py && \
-    echo 'import sys' >> /tmp/patch/patch.py && \
-    echo 'import ultralytics.nn.tasks as tasks' >> /tmp/patch/patch.py && \
+    echo 'import sys' > /tmp/patch/patch.py && \
+    echo 'from ultralytics.models.pose import Pose as PoseModel' >> /tmp/patch/patch.py && \
+    echo 'import ultralytics.nn.tasks' >> /tmp/patch/patch.py && \
     echo 'sys.modules["ultralytics.nn.tasks"].PoseModel = PoseModel' >> /tmp/patch/patch.py && \
+    cat /tmp/patch/patch.py && \
     python -c "import sys; sys.path.append('/tmp/patch'); import patch"
 
 # Now load the models after the patch is applied
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); YOLO('yolov8n-pose.pt'); print('All models loaded successfully')"
+RUN python -c "from ultralytics import YOLO; print('Loading detection models...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); pose_model = YOLO('yolov8n-pose.pt'); print('All models loaded successfully'); print('Pose model type:', type(pose_model)); print('Pose model attributes:', dir(pose_model))"
 
 # Download EasyOCR models during build time (English model)
 RUN python -c "import easyocr; reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, model_storage_directory='/root/.EasyOCR/model')"
