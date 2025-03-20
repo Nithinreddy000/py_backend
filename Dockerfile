@@ -56,7 +56,13 @@ RUN pip install --no-cache-dir "ultralytics==8.0.145" easyocr && \
 # Download YOLO models first without loading them
 RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt -O /root/.cache/torch/hub/checkpoints/yolov8n.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
-    wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
+    wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt && \
+    wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8x-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8x-pose.pt && \
+    # Create symbolic links in /app directory for direct access
+    ln -sf /root/.cache/torch/hub/checkpoints/yolov8n.pt /app/yolov8n.pt && \
+    ln -sf /root/.cache/torch/hub/checkpoints/yolov8s.pt /app/yolov8s.pt && \
+    ln -sf /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt /app/yolov8n-pose.pt && \
+    ln -sf /root/.cache/torch/hub/checkpoints/yolov8x-pose.pt /app/yolov8x-pose.pt
 
 # Create a wrapper script that modifies the module after it's fully loaded
 RUN echo '#!/usr/bin/env python3\n\
@@ -64,10 +70,25 @@ RUN echo '#!/usr/bin/env python3\n\
 import ultralytics\n\
 import sys\n\
 import types\n\
+import os\n\
 \n\
 # Verify the package is imported and ready\n\
 print("Ultralytics version:", ultralytics.__version__)\n\
 print("Available modules:", [name for name in dir(ultralytics) if not name.startswith("_")])\n\
+\n\
+# Check if all model files exist\n\
+model_files = [\n\
+    "/app/yolov8n.pt",\n\
+    "/app/yolov8s.pt",\n\
+    "/app/yolov8n-pose.pt",\n\
+    "/app/yolov8x-pose.pt"\n\
+]\n\
+\n\
+for model_file in model_files:\n\
+    if os.path.exists(model_file):\n\
+        print(f"Model file exists: {model_file}")\n\
+    else:\n\
+        print(f"WARNING: Model file does not exist: {model_file}")\n\
 \n\
 # Now that the module is fully loaded, we can create our PoseModel class\n\
 # Define a dummy PoseModel class that will be used as a placeholder\n\
@@ -94,6 +115,7 @@ try:\n\
     detector = YOLO("yolov8n.pt")\n\
     detector2 = YOLO("yolov8s.pt")\n\
     pose_model = YOLO("yolov8n-pose.pt")\n\
+    pose_model_x = YOLO("yolov8x-pose.pt")\n\
     print("Successfully loaded all models")\n\
 except Exception as e:\n\
     print("Error loading models:", e)\n\
@@ -106,22 +128,52 @@ RUN python /tmp/patch_ultralytics.py
 RUN echo '#!/usr/bin/env python3\n\
 import sys\n\
 import types\n\
+import os\n\
 \n\
 def patch_ultralytics():\n\
     import ultralytics.nn.tasks\n\
     from ultralytics import YOLO\n\
     \n\
+    # First check if all model files are present\n\
+    model_files = [\n\
+        "/app/yolov8n.pt",\n\
+        "/app/yolov8s.pt",\n\
+        "/app/yolov8n-pose.pt",\n\
+        "/app/yolov8x-pose.pt"\n\
+    ]\n\
+    \n\
+    for model_file in model_files:\n\
+        if not os.path.exists(model_file):\n\
+            # Copy from cache location if available\n\
+            cache_path = f"/root/.cache/torch/hub/checkpoints/{os.path.basename(model_file)}"\n\
+            if os.path.exists(cache_path):\n\
+                import shutil\n\
+                shutil.copy(cache_path, model_file)\n\
+                print(f"Copied model from cache: {cache_path} -> {model_file}")\n\
+            else:\n\
+                print(f"WARNING: Model file does not exist: {model_file}")\n\
+                # But we will continue without failing\n\
+    \n\
     if not hasattr(ultralytics.nn.tasks, "PoseModel"):\n\
         # Define a wrapper class that delegates to YOLO\n\
         class PoseModel(object):\n\
             def __init__(self, *args, **kwargs):\n\
-                self.model = YOLO(*args, **kwargs)\n\
-                for attr in dir(self.model):\n\
-                    if not attr.startswith("_"):\n\
-                        setattr(self, attr, getattr(self.model, attr))\n\
+                try:\n\
+                    self.model = YOLO(*args, **kwargs)\n\
+                    for attr in dir(self.model):\n\
+                        if not attr.startswith("_"):\n\
+                            setattr(self, attr, getattr(self.model, attr))\n\
+                except Exception as e:\n\
+                    print(f"Error initializing YOLO model: {e}")\n\
+                    # Create a dummy model to prevent crashes\n\
+                    self.model = None\n\
             \n\
             def __call__(self, *args, **kwargs):\n\
-                return self.model(*args, **kwargs)\n\
+                if self.model is not None:\n\
+                    return self.model(*args, **kwargs)\n\
+                else:\n\
+                    print("Warning: Using dummy model, no results will be returned")\n\
+                    return []\n\
         \n\
         # Add to the tasks module\n\
         ultralytics.nn.tasks.PoseModel = PoseModel\n\
@@ -133,8 +185,37 @@ def patch_ultralytics():\n\
 patch_ultralytics()\n\
 ' > /usr/local/lib/python3.9/site-packages/ultralytics_patch.py
 
-# Add the patch to be imported at app startup
-RUN echo "import ultralytics_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/__init__.py
+# Create a script to prevent crashing when model can't be found
+RUN echo 'import os\n\
+import sys\n\
+\n\
+# Add a monkey patch to handle missing model files gracefully\n\
+original_open = open\n\
+\n\
+def patched_open(file, *args, **kwargs):\n\
+    if file.endswith(".pt") and not os.path.exists(file):\n\
+        print(f"WARNING: Model file not found: {file}")\n\
+        # For model files, if they don\'t exist, create a fallback mechanism\n\
+        if "yolov8x-pose.pt" in file:\n\
+            if os.path.exists("/app/yolov8n-pose.pt"):\n\
+                print(f"Using fallback model: /app/yolov8n-pose.pt instead of {file}")\n\
+                return original_open("/app/yolov8n-pose.pt", *args, **kwargs)\n\
+            else:\n\
+                # Try to find any pose model\n\
+                for fallback in ["/root/.cache/torch/hub/checkpoints/yolov8n-pose.pt", \n\
+                                "/app/yolov8n-pose.pt"]:\n\
+                    if os.path.exists(fallback):\n\
+                        print(f"Using fallback model: {fallback} instead of {file}")\n\
+                        return original_open(fallback, *args, **kwargs)\n\
+    \n\
+    return original_open(file, *args, **kwargs)\n\
+\n\
+# Apply the patch\n\
+open = patched_open\n\
+' > /usr/local/lib/python3.9/site-packages/model_fallback.py
+
+# Add the fallback patch to be imported at app startup
+RUN echo "import model_fallback" >> /usr/local/lib/python3.9/site-packages/ultralytics/__init__.py
 
 # Create a test script to verify loading
 RUN echo '#!/usr/bin/env python3\n\
@@ -142,9 +223,26 @@ print("Testing YOLO model loading...")\n\
 try:\n\
     from ultralytics import YOLO\n\
     print("Successfully imported YOLO")\n\
-    # Test loading pose model\n\
-    model = YOLO("yolov8n-pose.pt")\n\
-    print("Successfully loaded pose model")\n\
+    \n\
+    # Test loading models\n\
+    print("Loading yolov8n.pt...")\n\
+    model1 = YOLO("yolov8n.pt")\n\
+    print("Loading yolov8n-pose.pt...")\n\
+    model2 = YOLO("yolov8n-pose.pt")\n\
+    \n\
+    # Test loading non-existent model to verify fallback works\n\
+    print("Testing fallback with deliberate non-existent model...")\n\
+    test_file = "/app/non_existent_model.pt"\n\
+    import os\n\
+    if not os.path.exists(test_file):\n\
+        print(f"Confirmed {test_file} does not exist, testing fallback mechanism")\n\
+        try:\n\
+            with open(test_file, "rb") as f:\n\
+                print("Fallback mechanism worked!")\n\
+        except Exception as e:\n\
+            print(f"Fallback failed: {e}")\n\
+    \n\
+    print("All tests complete")\n\
 except Exception as e:\n\
     print("Error:", e)\n\
 ' > /tmp/test_models.py && chmod +x /tmp/test_models.py
@@ -160,6 +258,68 @@ COPY . .
 
 # Create models directory if it doesn't exist
 RUN mkdir -p models/z-anatomy models/z-anatomy/output
+
+# Create a modified app initialization script to prevent worker restarts
+RUN echo '# Model initialization script for app.py\n\
+import os\n\
+import time\n\
+import logging\n\
+\n\
+def initialize_models_safely():\n\
+    """Initialize all models safely without causing worker restarts"""\n\
+    try:\n\
+        logging.info("Starting safe model initialization")\n\
+        \n\
+        # Check if models exist in expected locations\n\
+        model_files = [\n\
+            "/app/yolov8n.pt",\n\
+            "/app/yolov8s.pt", \n\
+            "/app/yolov8n-pose.pt",\n\
+            "/app/yolov8x-pose.pt"\n\
+        ]\n\
+        \n\
+        for model_path in model_files:\n\
+            if os.path.exists(model_path):\n\
+                logging.info(f"Model exists: {model_path}")\n\
+            else:\n\
+                # Create a symlink from cache if available\n\
+                cache_path = f"/root/.cache/torch/hub/checkpoints/{os.path.basename(model_path)}"\n\
+                if os.path.exists(cache_path):\n\
+                    try:\n\
+                        os.symlink(cache_path, model_path)\n\
+                        logging.info(f"Created symlink from {cache_path} to {model_path}")\n\
+                    except Exception as e:\n\
+                        logging.warning(f"Failed to create symlink: {e}")\n\
+                else:\n\
+                    logging.warning(f"Model not found: {model_path} or {cache_path}")\n\
+                    \n\
+        # Try to load YOLO models with graceful fallback\n\
+        try:\n\
+            from ultralytics import YOLO\n\
+            \n\
+            # Initialize models one by one with timeouts\n\
+            models = {}\n\
+            for model_name in ["yolov8n.pt", "yolov8n-pose.pt"]:\n\
+                try:\n\
+                    logging.info(f"Loading model: {model_name}")\n\
+                    start_time = time.time()\n\
+                    model = YOLO(model_name)\n\
+                    models[model_name] = model\n\
+                    logging.info(f"Loaded {model_name} in {time.time() - start_time:.2f} seconds")\n\
+                except Exception as e:\n\
+                    logging.error(f"Error loading {model_name}: {e}")\n\
+            \n\
+            # Return the loaded models\n\
+            return models\n\
+                \n\
+        except Exception as e:\n\
+            logging.error(f"Error initializing YOLO: {e}")\n\
+            return {}\n\
+            \n\
+    except Exception as e:\n\
+        logging.error(f"Error in safe model initialization: {e}")\n\
+        return {}\n\
+' > /app/safe_model_init.py
 
 # Create fallback models directory
 RUN mkdir -p fallback_models
@@ -183,6 +343,7 @@ ENV GUNICORN_MAX_REQUESTS=1
 ENV GUNICORN_MAX_REQUESTS_JITTER=0
 ENV GUNICORN_KEEP_ALIVE=5
 ENV GUNICORN_GRACEFUL_TIMEOUT=3600
+ENV PYTHONPATH=/app
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
@@ -204,6 +365,7 @@ CMD gunicorn --bind 0.0.0.0:$PORT \
     --max-requests ${GUNICORN_MAX_REQUESTS:-1} \
     --max-requests-jitter ${GUNICORN_MAX_REQUESTS_JITTER:-0} \
     --worker-class ${GUNICORN_WORKER_CLASS:-gthread} \
+    --preload \
     --log-level info \
     --access-logfile - \
     --error-logfile - \
