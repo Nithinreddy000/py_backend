@@ -1337,30 +1337,68 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         else:
             print(f"Found {len(athletes_in_match)} athletes in match {match_id}")
             
-            # Loop through athletes and fetch their details
-            for jersey_number, athlete_id in athletes_in_match.items():
-                print(f"Found athlete in match: {jersey_number}, ID: {athlete_id}")
-                athlete_ref = db.collection('athletes').document(athlete_id)
-                athlete_doc = athlete_ref.get()
-                
-                if athlete_doc.exists:
-                    athlete_data = athlete_doc.to_dict()
-                    athletes_data[jersey_number] = {
-                        'id': athlete_id,
-                        'name': athlete_data.get('name', 'Unknown'),
-                        'jersey_number': jersey_number,
-                        'country': athlete_data.get('country', 'Unknown'),
-                        'team': athlete_data.get('team', 'Unknown')
-                    }
-                else:
-                    print(f"Athlete {athlete_id} not found, using limited data")
-                    athletes_data[jersey_number] = {
-                        'id': athlete_id,
-                        'name': 'Unknown Athlete',
-                        'jersey_number': jersey_number,
-                        'country': 'Unknown',
-                        'team': 'Unknown'
-                    }
+            # Check if athletes_in_match is a list or dictionary and handle accordingly
+            if isinstance(athletes_in_match, list):
+                print("Athletes in match is a list, processing as list of IDs")
+                # Process as a list of athlete IDs
+                for athlete_id in athletes_in_match:
+                    if not athlete_id:  # Skip empty athlete IDs
+                        continue
+                        
+                    print(f"Found athlete in match: ID: {athlete_id}")
+                    athlete_ref = db.collection('athletes').document(athlete_id)
+                    athlete_doc = athlete_ref.get()
+                    
+                    # Generate a sequential jersey number
+                    jersey_number = str(len(athletes_data) + 1).zfill(5)
+                    
+                    if athlete_doc.exists:
+                        athlete_data = athlete_doc.to_dict()
+                        # Try to get jersey number from athlete data if available
+                        jersey_number = athlete_data.get('jersey_number', jersey_number)
+                        athletes_data[jersey_number] = {
+                            'id': athlete_id,
+                            'name': athlete_data.get('name', 'Unknown'),
+                            'jersey_number': jersey_number,
+                            'country': athlete_data.get('country', 'Unknown'),
+                            'team': athlete_data.get('team', 'Unknown')
+                        }
+                    else:
+                        print(f"Athlete {athlete_id} not found, using limited data")
+                        athletes_data[jersey_number] = {
+                            'id': athlete_id,
+                            'name': 'Unknown Athlete',
+                            'jersey_number': jersey_number,
+                            'country': 'Unknown',
+                            'team': 'Unknown'
+                        }
+            else:
+                # Process as a dictionary of jersey number to athlete ID
+                print("Athletes in match is a dictionary, processing as jersey to ID mapping")
+                # Loop through athletes and fetch their details
+                for jersey_number, athlete_id in athletes_in_match.items():
+                    print(f"Found athlete in match: {jersey_number}, ID: {athlete_id}")
+                    athlete_ref = db.collection('athletes').document(athlete_id)
+                    athlete_doc = athlete_ref.get()
+                    
+                    if athlete_doc.exists:
+                        athlete_data = athlete_doc.to_dict()
+                        athletes_data[jersey_number] = {
+                            'id': athlete_id,
+                            'name': athlete_data.get('name', 'Unknown'),
+                            'jersey_number': jersey_number,
+                            'country': athlete_data.get('country', 'Unknown'),
+                            'team': athlete_data.get('team', 'Unknown')
+                        }
+                    else:
+                        print(f"Athlete {athlete_id} not found, using limited data")
+                        athletes_data[jersey_number] = {
+                            'id': athlete_id,
+                            'name': 'Unknown Athlete',
+                            'jersey_number': jersey_number,
+                            'country': 'Unknown',
+                            'team': 'Unknown'
+                        }
         
         print(f"Athlete details: {athletes_data}")
                 
