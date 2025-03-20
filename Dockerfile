@@ -46,29 +46,35 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
-# Install specific version of ultralytics that has the PoseModel attribute
+# Install specific version of ultralytics that works with pose models and easyocr
 RUN pip install --no-cache-dir ultralytics==8.0.20 easyocr && \
     mkdir -p /root/.cache/torch/hub/ultralytics_yolov5_master && \
     mkdir -p /root/.cache/torch/hub/checkpoints && \
     mkdir -p /root/.config/easyocr && \
     mkdir -p /root/.EasyOCR/model
 
-# Download YOLO models during build time
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt')" && \
-    wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt -O /root/.cache/torch/hub/checkpoints/yolov8n.pt && \
+# Download YOLO models first without loading them
+RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt -O /root/.cache/torch/hub/checkpoints/yolov8n.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
-# Create the needed Python shim file to ensure PoseModel attribute exists
-RUN echo 'from ultralytics.models.yolo.pose import PoseModel' > /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_shim.py && \
-    echo 'from ultralytics.nn import tasks' >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_shim.py && \
-    echo 'tasks.PoseModel = PoseModel' >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_shim.py && \
-    echo 'import ultralytics.nn.tasks_pose_shim' > /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py.new && \
-    cat /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py.new && \
-    mv /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py.new /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py
+# Create the monkey patch for PoseModel in ultralytics
+RUN mkdir -p /tmp/patch && \
+    echo 'from ultralytics.models.yolo.pose import PoseModel' > /tmp/patch/patch.py && \
+    echo 'import sys' >> /tmp/patch/patch.py && \
+    echo 'import ultralytics.nn.tasks as tasks' >> /tmp/patch/patch.py && \
+    echo 'sys.modules["ultralytics.nn.tasks"].PoseModel = PoseModel' >> /tmp/patch/patch.py && \
+    python -c "import sys; sys.path.append('/tmp/patch'); import patch"
+
+# Now load the models after the patch is applied
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); YOLO('yolov8n-pose.pt'); print('All models loaded successfully')"
 
 # Download EasyOCR models during build time (English model)
 RUN python -c "import easyocr; reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, model_storage_directory='/root/.EasyOCR/model')"
+
+# Make the patch permanent by adding it to the Python path
+RUN cp /tmp/patch/patch.py /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_patch.py && \
+    echo "import ultralytics.nn.tasks_pose_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py
 
 # Copy the rest of the application
 COPY . .
@@ -93,6 +99,9 @@ ENV LAZY_LOAD_MODELS=false
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
+
+# Verify all models are available and the patch works
+RUN python -c "from ultralytics import YOLO; print('Checking if all models work:'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models verified successfully')"
 
 # Expose the port
 EXPOSE 8080
