@@ -1313,11 +1313,30 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         if current_status != 'processing':
             match_ref.update({
                 'status': 'processing',
-                'processing_started_at': datetime.datetime.now()
+                'processing_started_at': datetime.datetime.now(),
+                'processing_progress': 0.0,
+                'processing_stage': 'initializing',
+                'processing_message': 'Starting video processing...'
             })
             print(f"Updated match {match_id} status to 'processing'")
         else:
             print(f"Match {match_id} is already in 'processing' status, not updating")
+            
+        # Setup a function to update processing progress
+        def update_progress(progress, stage, message):
+            try:
+                match_ref.update({
+                    'processing_progress': progress,
+                    'processing_stage': stage,
+                    'processing_message': message,
+                    'last_progress_update': datetime.datetime.now()
+                })
+                print(f"Updated match {match_id} progress: {progress:.2f} - {stage}: {message}")
+            except Exception as e:
+                print(f"Error updating match progress: {e}")
+        
+        # Update progress - Started
+        update_progress(0.05, 'upload', 'Preparing to process video...')
         
         # Check if video file exists and is valid
         video_exists = os.path.exists(video_path) and os.path.getsize(video_path) > 0
@@ -1333,10 +1352,13 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         if video_exists:
             try:
                 print(f"Attempting to upload video to Cloudinary: {video_path}")
+                update_progress(0.1, 'upload', 'Uploading video to cloud storage...')
                 video_url = upload_to_cloudinary(video_path, match_id)
                 print(f"Video successfully uploaded to Cloudinary with URL: {video_url}")
+                update_progress(0.2, 'detection', 'Video uploaded successfully, starting detection...')
             except Exception as upload_error:
                 print(f"Error uploading to Cloudinary: {upload_error}")
+                update_progress(0.15, 'detection', 'Cloud upload failed, continuing with local processing...')
                 # Continue with processing even if upload fails
         
         # Initialize athlete details
@@ -1435,6 +1457,7 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         # Process the video
         try:
             if video_exists:
+                update_progress(0.3, 'detection', 'Analyzing video footage...')
                 print(f"Starting video processing for match {match_id}")
                 # Create output directory if it doesn't exist
                 output_dir = os.path.join(tempfile.gettempdir(), 'processed_videos')
@@ -1444,24 +1467,49 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
                 output_filename = f"processed_{match_id}.mp4"
                 output_path = os.path.join(output_dir, output_filename)
                 
-                # Fix the function call to include all required arguments
-                processed_video_path = process_video(video_path, output_path, athletes_data, sport_type)
+                # Set up a progress callback for the video processing
+                last_progress_update = time.time()
+                
+                def progress_callback(frame_count, total_frames, stage_name="processing"):
+                    nonlocal last_progress_update
+                    # Limit updates to avoid flooding Firestore (once per second)
+                    current_time = time.time()
+                    if current_time - last_progress_update >= 1.0:
+                        progress_percent = min(0.9, 0.3 + (frame_count / total_frames * 0.6))
+                        update_progress(
+                            progress_percent, 
+                            stage_name, 
+                            f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%)"
+                        )
+                        last_progress_update = current_time
+                
+                # Fix the function call to include progress callback
+                processed_video_path = process_video(
+                    video_path, output_path, athletes_data, sport_type, 
+                    progress_callback=progress_callback
+                )
                 print(f"Video processing completed. Output path: {processed_video_path}")
+                update_progress(0.9, 'finalizing', 'Video processing completed, finalizing results...')
                 
                 # Upload processed video to Cloudinary
                 if processed_video_path and os.path.exists(processed_video_path):
                     try:
+                        update_progress(0.95, 'upload', 'Uploading processed video...')
                         processed_video_url = upload_to_cloudinary(processed_video_path, f"{match_id}_processed")
                         print(f"Processed video uploaded to Cloudinary: {processed_video_url}")
+                        update_progress(0.98, 'completing', 'Processed video uploaded, completing analysis...')
                     except Exception as upload_error:
                         print(f"Error uploading processed video to Cloudinary: {upload_error}")
                         processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
+                        update_progress(0.95, 'error', 'Error uploading processed video, using fallback URL')
                 else:
                     print("Processed video file not found or invalid")
                     processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
+                    update_progress(0.95, 'error', 'Processed video file not found, using fallback URL')
             else:
                 print("Skipping video processing as video file is invalid")
                 processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
+                update_progress(0.5, 'error', 'Invalid video file, skipping processing')
         except Exception as process_error:
             print(f"Error processing video: {process_error}")
             # Update match with error status
@@ -1509,7 +1557,10 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
                 'processing_completed_at': datetime.datetime.now(),
                 'original_video_url': video_url,
                 'processed_video_url': processed_video_url,
-                'performance_data': performance_data
+                'performance_data': performance_data,
+                'processing_progress': 1.0,
+                'processing_stage': 'completed',
+                'processing_message': 'Video processing completed successfully'
             }
             
             # Only add coach_id if it's not already set
@@ -1668,7 +1719,7 @@ def initialize_fitbit_data():
         'acceleration': [0.1 + np.random.random() * 0.2]  # Small initial acceleration
     }
 
-def process_video(input_path, output_path, athletes_data, sport_type):
+def process_video(input_path, output_path, athletes_data, sport_type, progress_callback=None):
     """
     Process a video file to detect and track athletes.
     
@@ -1677,14 +1728,17 @@ def process_video(input_path, output_path, athletes_data, sport_type):
         output_path (str): Path where the processed video will be saved
         athletes_data (dict): Dictionary containing athlete information
         sport_type (str): Type of sport being played
+        progress_callback (callable): Optional callback function to report progress
     
     Returns:
         str: Path to the processed video file
     """
     print(f"Starting video processing: {input_path} -> {output_path}")
+    start_time = time.time()
     
     try:
         # Create a jersey detector instance
+        print("Initializing jersey detector...")
         jersey_detector = JerseyDetector()
         
         # Get valid jersey numbers from athletes_data
@@ -1694,14 +1748,45 @@ def process_video(input_path, output_path, athletes_data, sport_type):
         print(f"Valid jersey numbers in match: {valid_jersey_numbers}")
         
         # Initialize YOLO model if available
+        print("Loading YOLO model...")
+        if progress_callback:
+            progress_callback(0, 100, "loading_models")
+        
         try:
             import ultralytics
             model = ultralytics.YOLO('yolov8n-pose.pt')
             print("Loaded YOLOv8 pose model")
+            if progress_callback:
+                progress_callback(0, 100, "model_loaded")
         except Exception as e:
             print(f"Error loading YOLO model: {e}")
             model = None
+            
+        # Initialize EasyOCR for jersey number detection
+        print("Loading OCR model...")
+        if progress_callback:
+            progress_callback(0, 100, "loading_ocr")
+        
+        try:
+            import easyocr
+            reader = easyocr.Reader(['en'], gpu=False)  # Set gpu=True if available
+            print("Loaded EasyOCR model")
+            if progress_callback:
+                progress_callback(0, 100, "ocr_loaded")
+        except Exception as e:
+            print(f"Error loading EasyOCR: {e}")
+            
+            # Create a dummy reader for testing
+            class DummyReader:
+                def readtext(self, image, **kwargs):
+                    return []
+            reader = DummyReader()
+            print("Using dummy OCR reader")
+            if progress_callback:
+                progress_callback(0, 100, "dummy_ocr_loaded")
+            
         # Open the video file
+        print("Opening video file...")
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video file: {input_path}")
@@ -1715,10 +1800,12 @@ def process_video(input_path, output_path, athletes_data, sport_type):
         print(f"Video properties: {width}x{height}, {fps} fps, {total_frames} frames")
         
         # Create video writer
+        print("Creating video writer...")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
+    
         # Initialize tracker
+        print("Initializing tracker...")
         tracker = None
         try:
             # Try to import BYTETracker
@@ -1835,6 +1922,10 @@ def process_video(input_path, output_path, athletes_data, sport_type):
             
             processed_count += 1
             
+            # Report progress
+            if progress_callback and frame_count % 5 == 0:  # Report every 5 frames
+                progress_callback(frame_count, total_frames)
+                
             # Create a copy for annotation
             annotated_frame = frame.copy()
             
@@ -1964,30 +2055,48 @@ def process_video(input_path, output_path, athletes_data, sport_type):
             # Write the frame
             out.write(annotated_frame)
             
-            # Print progress every 100 frames
-            if frame_count % 100 == 0 or frame_count == total_frames:
-                print(f"Processed {frame_count}/{total_frames} frames ({(frame_count/total_frames)*100:.1f}%)")
+            # Print progress more frequently - every 20 frames
+            if frame_count % 20 == 0 or frame_count == total_frames:
+                elapsed = time.time() - start_time
+                fps_processing = frame_count / elapsed if elapsed > 0 else 0
+                remaining_frames = total_frames - frame_count
+                estimated_time = remaining_frames / fps_processing if fps_processing > 0 else 0
                 
-                # Print detected athletes
-                detected_count = 0
-                for jersey, athlete in athletes_data.items():
-                    if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
-                        if athlete.get('track_id') is not None:
-                            detected_count += 1
-                            print(f"  Athlete #{jersey}: {athlete['name']} (Track ID: {athlete['track_id']})")
+                print(f"Processed {frame_count}/{total_frames} frames ({(frame_count/total_frames)*100:.1f}%) - "
+                      f"Processing speed: {fps_processing:.2f} fps, Est. time remaining: {estimated_time:.1f}s")
                 
-                print(f"  Detected {detected_count}/{len(valid_jersey_numbers)} athletes")
+                # If processing is very slow, print a warning
+                if fps_processing < 1.0 and frame_count > 50:
+                    print(f"WARNING: Processing is unusually slow ({fps_processing:.2f} fps). Consider reducing video resolution or using GPU.")
+                
+                # Print detected athletes every 100 frames
+                if frame_count % 100 == 0 or frame_count == total_frames:
+                    detected_count = 0
+                    for jersey, athlete in athletes_data.items():
+                        if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
+                            if athlete.get('track_id') is not None:
+                                detected_count += 1
+                                print(f"  Athlete #{jersey}: {athlete['name']} (Track ID: {athlete['track_id']})")
+                    
+                    print(f"  Detected {detected_count}/{len(valid_jersey_numbers)} athletes")
         
         # Finalize metrics for each athlete
+        print("Finalizing athlete metrics...")
+        if progress_callback:
+            progress_callback(total_frames, total_frames, "finalizing")
+            
         for jersey, athlete in athletes_data.items():
             if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
                 finalize_athlete_metrics(athlete, sport_type)
         
         # Release resources
+        print("Releasing resources...")
         cap.release()
         out.release()
         
+        total_time = time.time() - start_time
         print(f"Video processing completed: {output_path}")
+        print(f"Total processing time: {total_time:.2f} seconds ({total_frames/total_time:.2f} fps average)")
         return output_path
         
     except Exception as e:
