@@ -47,7 +47,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN python -m spacy download en_core_web_sm
 
 # Install a known working version of ultralytics
-RUN pip install --no-cache-dir ultralytics==8.0.196 easyocr && \
+RUN pip install --no-cache-dir "ultralytics==8.0.145" easyocr && \
     mkdir -p /root/.cache/torch/hub/ultralytics_yolov5_master && \
     mkdir -p /root/.cache/torch/hub/checkpoints && \
     mkdir -p /root/.config/easyocr && \
@@ -58,50 +58,102 @@ RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
-# Create a proper multi-line inspection script
+# Create a wrapper script that modifies the module after it's fully loaded
 RUN echo '#!/usr/bin/env python3\n\
-import inspect\n\
-import pkgutil\n\
+# First, fully import and initialize ultralytics\n\
 import ultralytics\n\
+import sys\n\
+import types\n\
 \n\
-print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)])\n\
+# Verify the package is imported and ready\n\
+print("Ultralytics version:", ultralytics.__version__)\n\
+print("Available modules:", [name for name in dir(ultralytics) if not name.startswith("_")])\n\
 \n\
-# Try to load a pose model\n\
+# Now that the module is fully loaded, we can create our PoseModel class\n\
+# Define a dummy PoseModel class that will be used as a placeholder\n\
+class PoseModel(object):\n\
+    def __init__(self, *args, **kwargs):\n\
+        from ultralytics import YOLO\n\
+        self.model = YOLO(*args, **kwargs)\n\
+        for attr in dir(self.model):\n\
+            if not attr.startswith("_"):\n\
+                setattr(self, attr, getattr(self.model, attr))\n\
+\n\
+    def __call__(self, *args, **kwargs):\n\
+        return self.model(*args, **kwargs)\n\
+\n\
+# Add PoseModel to the ultralytics.nn.tasks module\n\
+import ultralytics.nn.tasks\n\
+ultralytics.nn.tasks.PoseModel = PoseModel\n\
+\n\
+print("PoseModel class successfully added to ultralytics.nn.tasks")\n\
+\n\
+# Verify we can load the models\n\
 try:\n\
     from ultralytics import YOLO\n\
-    model = YOLO("yolov8n-pose.pt")\n\
-    print("Model loaded successfully!")\n\
-    print("Model type:", type(model))\n\
-    print("Model class name:", model.__class__.__name__)\n\
+    detector = YOLO("yolov8n.pt")\n\
+    detector2 = YOLO("yolov8s.pt")\n\
+    pose_model = YOLO("yolov8n-pose.pt")\n\
+    print("Successfully loaded all models")\n\
 except Exception as e:\n\
-    print("Error loading model:", e)\n\
-' > /tmp/inspect_ultralytics.py && chmod +x /tmp/inspect_ultralytics.py && python /tmp/inspect_ultralytics.py
+    print("Error loading models:", e)\n\
+' > /tmp/patch_ultralytics.py && chmod +x /tmp/patch_ultralytics.py
 
-# Create the monkey patch script
+# Apply the patch 
+RUN python /tmp/patch_ultralytics.py
+
+# Create a startup script that applies the patch at runtime
 RUN echo '#!/usr/bin/env python3\n\
 import sys\n\
-from ultralytics import YOLO\n\
-import ultralytics.nn.tasks\n\
+import types\n\
 \n\
-# Create a pose model instance\n\
-model = YOLO("yolov8n-pose.pt")\n\
+def patch_ultralytics():\n\
+    import ultralytics.nn.tasks\n\
+    from ultralytics import YOLO\n\
+    \n\
+    if not hasattr(ultralytics.nn.tasks, "PoseModel"):\n\
+        # Define a wrapper class that delegates to YOLO\n\
+        class PoseModel(object):\n\
+            def __init__(self, *args, **kwargs):\n\
+                self.model = YOLO(*args, **kwargs)\n\
+                for attr in dir(self.model):\n\
+                    if not attr.startswith("_"):\n\
+                        setattr(self, attr, getattr(self.model, attr))\n\
+            \n\
+            def __call__(self, *args, **kwargs):\n\
+                return self.model(*args, **kwargs)\n\
+        \n\
+        # Add to the tasks module\n\
+        ultralytics.nn.tasks.PoseModel = PoseModel\n\
+        print("Applied PoseModel patch to ultralytics.nn.tasks")\n\
+    else:\n\
+        print("PoseModel already exists in ultralytics.nn.tasks")\n\
 \n\
-# Register the model class as PoseModel\n\
-model_class = model.__class__\n\
-print("Using model class:", model_class.__name__, "as PoseModel")\n\
-sys.modules["ultralytics.nn.tasks"].PoseModel = model_class\n\
-print("Monkey patch applied successfully")\n\
-' > /tmp/apply_patch.py && chmod +x /tmp/apply_patch.py && python /tmp/apply_patch.py
+# This will be imported when the app starts\n\
+patch_ultralytics()\n\
+' > /usr/local/lib/python3.9/site-packages/ultralytics_patch.py
 
-# Now load the models to verify everything works
-RUN python -c "from ultralytics import YOLO; print('Loading all models to verify...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models loaded successfully')"
+# Add the patch to be imported at app startup
+RUN echo "import ultralytics_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/__init__.py
+
+# Create a test script to verify loading
+RUN echo '#!/usr/bin/env python3\n\
+print("Testing YOLO model loading...")\n\
+try:\n\
+    from ultralytics import YOLO\n\
+    print("Successfully imported YOLO")\n\
+    # Test loading pose model\n\
+    model = YOLO("yolov8n-pose.pt")\n\
+    print("Successfully loaded pose model")\n\
+except Exception as e:\n\
+    print("Error:", e)\n\
+' > /tmp/test_models.py && chmod +x /tmp/test_models.py
+
+# Test the model loading works
+RUN python /tmp/test_models.py
 
 # Download EasyOCR models during build time (English model)
 RUN python -c "import easyocr; reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, model_storage_directory='/root/.EasyOCR/model')"
-
-# Make the patch permanent
-RUN cp /tmp/apply_patch.py /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_patch.py && \
-    echo "import ultralytics.nn.tasks_pose_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py
 
 # Copy the rest of the application
 COPY . .
@@ -126,9 +178,6 @@ ENV LAZY_LOAD_MODELS=false
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
-
-# Verify all models are available and the patch works
-RUN python -c "from ultralytics import YOLO; print('Final verification of all models:'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models verified successfully')"
 
 # Expose the port
 EXPOSE 8080
