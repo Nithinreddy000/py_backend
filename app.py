@@ -1148,67 +1148,27 @@ def initialize_models():
     try:
         print("Initializing YOLOv8 models and OCR...")
         
-        # First try to load the safe initialization script
-        try:
-            import ultralytics_patch
-            print("Loaded ultralytics patch successfully")
-        except ImportError as e:
-            print(f"Warning: Could not load ultralytics patch: {e}")
-        
         # Get the directory where the script is located
         current_dir = os.path.dirname(os.path.abspath(__file__))
     
-        # Initialize YOLOv8 pose model with fallback options
-        model_paths = [
-            os.path.join(current_dir, "yolov8x-pose.pt"),
-            os.path.join(current_dir, "yolov8n-pose.pt"),
-            "/app/yolov8x-pose.pt",
-            "/app/yolov8n-pose.pt"
-        ]
-        
-        pose_model = None
-        for model_path in model_paths:
-            if os.path.exists(model_path):
-                try:
-                    pose_model = YOLO(model_path)
-                    print(f"Successfully loaded pose model from {model_path}")
-                    break
-                except Exception as e:
-                    print(f"Error loading pose model from {model_path}: {e}")
-                    continue
-        
-        if pose_model is None:
-            print("Warning: Could not load any pose model, will use fallback")
-            try:
-                pose_model = YOLO("yolov8n-pose.pt")  # Try downloading as last resort
-                print("Successfully downloaded and loaded fallback pose model")
-            except Exception as e:
-                print(f"Error loading fallback pose model: {e}")
-                pose_model = None
+        # Initialize YOLOv8 pose model
+        model_path = os.path.join(current_dir, "yolov8x-pose.pt")
+        if os.path.exists(model_path):
+            pose_model = YOLO(model_path)
+        else:
+            print(f"Warning: Pose model not found at {model_path}, downloading from ultralytics...")
+            pose_model = YOLO("yolov8n-pose.pt")  # Use smaller model to save time
     
         # Initialize YOLOv8 object detection model for jersey detection
-        try:
-            jersey_detector = YOLO("yolov8n.pt")
-            print("Successfully loaded jersey detection model")
-        except Exception as e:
-            print(f"Error loading jersey detection model: {e}")
-            jersey_detector = None
+        jersey_detector = YOLO("yolov8n.pt")
     
         # Initialize OCR reader for jersey numbers
-        try:
-            reader = easyocr.Reader(['en'])
-            print("Successfully initialized OCR reader")
-        except Exception as e:
-            print(f"Error initializing OCR reader: {e}")
-            reader = None
+        reader = easyocr.Reader(['en'])
     
-        print("Model initialization completed")
+        print("Models initialized successfully")
     except Exception as e:
         print(f"Error initializing models: {e}")
-        # Don't raise the exception, just set models to None
-        pose_model = None
-        jersey_detector = None
-        reader = None
+        raise Exception(f"Failed to initialize required models: {e}")
 
 # Initialize models in a background thread if not lazy loading
 if os.environ.get('LAZY_LOAD_MODELS', 'true').lower() != 'true':
