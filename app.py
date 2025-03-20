@@ -1287,334 +1287,175 @@ def process_match_video():
         }), 500
 
 def process_video_background(video_path, match_id, sport_type, coach_id):
-    """Process the video in a background thread."""
+    """Background thread for video processing to avoid blocking the main thread."""
     try:
-        print(f"Starting video processing for match: {match_id}")
-        # Initialize Firestore client
-        db = firestore.client()
+        print(f"Starting video processing for match {match_id}")
+        
+        # Get athlete information from Firestore
+        athletes_data = {}
+        
+        # Create directory for processed videos if it doesn't exist
+        output_dir = '/tmp/processed_videos'
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Set output path
+        output_path = os.path.join(output_dir, f"processed_{match_id}.mp4")
+        
+        # Get athlete data from match document in Firestore
         match_ref = db.collection('matches').document(match_id)
-        
-        # First check if the match document exists
         match_doc = match_ref.get()
+        
         if not match_doc.exists:
-            print(f"Error: Match document {match_id} does not exist")
-            return {
-                'match_id': match_id,
-                'status': 'error',
-                'message': f'Match document {match_id} does not exist'
-            }
-        
-        # Get the current match data
-        match_data = match_doc.to_dict()
-        print(f"Processing video for match: {match_id}, current status: {match_data.get('status', 'unknown')}")
-        
-        # Update match status to processing if it's not already
-        current_status = match_data.get('status', 'unknown')
-        if current_status != 'processing':
-            match_ref.update({
-                'status': 'processing',
-                'processing_started_at': datetime.datetime.now(),
-                'processing_progress': 0.0,
-                'processing_stage': 'initializing',
-                'processing_message': 'Starting video processing...'
-            })
-            print(f"Updated match {match_id} status to 'processing'")
-        else:
-            print(f"Match {match_id} is already in 'processing' status, not updating")
+            raise ValueError(f"Match {match_id} not found in Firestore")
             
-        # Setup a function to update processing progress
-        def update_progress(progress, stage, message):
+        match_data = match_doc.get()
+        sport_type = match_data.get('sport', sport_type)
+        
+        # Fetch athletes in match
+        print(f"Fetching athletes for match {match_id}")
+        athletes_in_match = match_data.get('athletes', {})
+        
+        if not athletes_in_match:
+            print(f"No athletes found in match {match_id}")
+        else:
+            print(f"Found {len(athletes_in_match)} athletes in match {match_id}")
+            
+            # Loop through athletes and fetch their details
+            for jersey_number, athlete_id in athletes_in_match.items():
+                print(f"Found athlete in match: {jersey_number}, ID: {athlete_id}")
+                athlete_ref = db.collection('athletes').document(athlete_id)
+                athlete_doc = athlete_ref.get()
+                
+                if athlete_doc.exists:
+                    athlete_data = athlete_doc.get()
+                    athletes_data[jersey_number] = {
+                        'id': athlete_id,
+                        'name': athlete_data.get('name', 'Unknown'),
+                        'jersey_number': jersey_number,
+                        'country': athlete_data.get('country', 'Unknown'),
+                        'team': athlete_data.get('team', 'Unknown')
+                    }
+                else:
+                    print(f"Athlete {athlete_id} not found, using limited data")
+                    athletes_data[jersey_number] = {
+                        'id': athlete_id,
+                        'name': 'Unknown Athlete',
+                        'jersey_number': jersey_number,
+                        'country': 'Unknown',
+                        'team': 'Unknown'
+                    }
+        
+        print(f"Athlete details: {athletes_data}")
+                
+        # Create jersey number to athlete mapping
+        jersey_to_athlete = {}
+        
+        # Get existing mapping from the match if available
+        existing_mapping = match_data.get('jersey_mapping', {})
+        if existing_mapping:
+            jersey_to_athlete.update(existing_mapping)
+            
+        # Add current athletes
+        for jersey_number, athlete_info in athletes_data.items():
+            jersey_to_athlete[jersey_number] = {
+                'id': athlete_info['id'],
+                'name': athlete_info['name'],
+                'jersey_number': jersey_number
+            }
+            
+        print(f"Jersey to athlete map: {jersey_to_athlete}")
+        
+        # Function to update progress in Firestore
+        def update_progress(progress, stage, message=""):
             try:
+                # Add timestamp and enhanced progress information
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " " + get_timezone_abbreviation()
+                
+                # Update the match document with progress information
                 match_ref.update({
+                    'processing_status': 'in_progress',
                     'processing_progress': progress,
                     'processing_stage': stage,
                     'processing_message': message,
-                    'last_progress_update': datetime.datetime.now()
+                    'last_progress_update': now  # Add timestamp
                 })
+                
+                # Log the progress update
                 print(f"Updated match {match_id} progress: {progress:.2f} - {stage}: {message}")
             except Exception as e:
-                print(f"Error updating match progress: {e}")
+                print(f"Error updating progress: {e}")
         
-        # Update progress - Started
-        update_progress(0.05, 'upload', 'Preparing to process video...')
+        # Initial progress update
+        update_progress(0.3, 'detection', 'Analyzing video footage...')
         
-        # Check if video file exists and is valid
-        video_exists = os.path.exists(video_path) and os.path.getsize(video_path) > 0
-        if video_exists:
-            print(f"Video file exists and is valid: {video_path}")
-        else:
-            print(f"Video file is invalid or does not exist: {video_path}")
+        # Set up a progress callback for the video processing
+        last_progress_update = time.time()
         
-        # Default video URL (in case upload fails)
-        video_url = f"https://example.com/videos/{match_id}.mp4"
-        
-        # Try to upload to Cloudinary if the video exists
-        if video_exists:
-            try:
-                print(f"Attempting to upload video to Cloudinary: {video_path}")
-                update_progress(0.1, 'upload', 'Uploading video to cloud storage...')
-                video_url = upload_to_cloudinary(video_path, match_id)
-                print(f"Video successfully uploaded to Cloudinary with URL: {video_url}")
-                update_progress(0.2, 'detection', 'Video uploaded successfully, starting detection...')
-            except Exception as upload_error:
-                print(f"Error uploading to Cloudinary: {upload_error}")
-                update_progress(0.15, 'detection', 'Cloud upload failed, continuing with local processing...')
-                # Continue with processing even if upload fails
-        
-        # Initialize athlete details
-        athlete_details = {}
-        jersey_to_athlete_map = {}
-            
-        try:
-            # Get athlete IDs from the match document
-            athlete_ids = match_data.get('athletes', [])
-            
-            print(f"Found {len(athlete_ids)} athletes in match {match_id}")
-            
-            # Get jersey-to-athlete mapping from all athletes in the system
-            jersey_query = db.collection('users').where('role', '==', 'athlete').stream()
-            for doc in jersey_query:
-                athlete_data = doc.to_dict()
-                jersey_number = athlete_data.get('jersey_number') or athlete_data.get('jerseyNumber')
-                if jersey_number:
-                    jersey_to_athlete_map[str(jersey_number)] = {
-                        'id': doc.id,
-                        'name': athlete_data.get('name', f"Athlete {jersey_number}"),
-                        'jersey_number': str(jersey_number)
-                    }
-            
-            # Get details for each athlete in this match
-            for athlete_id in athlete_ids:
-                try:
-                    athlete_doc = db.collection('users').document(athlete_id).get()
-                    if athlete_doc.exists:
-                        athlete_data = athlete_doc.to_dict() or {}
-                                        
-                        # Try different field names for jersey number
-                        jersey_number = athlete_data.get('jersey_number') or athlete_data.get('jerseyNumber')
-                        
-                        # If athlete has a jersey number, use it as the key
-                        if jersey_number:
-                            jersey_number = str(jersey_number)  # Ensure it's a string
-                            athlete_details[jersey_number] = {
-                                'id': athlete_id,
-                                'name': athlete_data.get('name', f"Athlete {jersey_number}"),
-                                'jersey_number': jersey_number,
-                                'country': athlete_data.get('country', 'Unknown'),
-                                'team': athlete_data.get('team', 'Unknown')
-                            }
-                            print(f"Found athlete in match: {athlete_data.get('name')} (#{jersey_number}, ID: {athlete_id})")
-                        else:
-                            # Generate a sequential jersey number if none exists
-                            jersey_number = str(len(athlete_details) + 1)
-                            athlete_details[jersey_number] = {
-                                'id': athlete_id,
-                                'name': athlete_data.get('name', f"Athlete {jersey_number}"),
-                                'jersey_number': jersey_number,
-                                'country': athlete_data.get('country', 'Unknown'),
-                                'team': athlete_data.get('team', 'Unknown')
-                            }
-                            print(f"Assigned jersey #{jersey_number} to athlete: {athlete_data.get('name')} (ID: {athlete_id})")
-                except Exception as athlete_error:
-                    print(f"Error getting athlete details: {athlete_error}")
-            
-            print(f"Athlete details: {athlete_details}")
-            print(f"Jersey to athlete map: {jersey_to_athlete_map}")
-        except Exception as e:
-            print(f"Error getting match data: {e}")
-            # Update match with error status
-            match_ref.update({
-                'status': 'error',
-                'error_message': f'Error getting match data: {str(e)}',
-                'processing_error_at': datetime.datetime.now()
-            })
-            return
-        
-        # Initialize athletes_data dictionary with athlete details
-        athletes_data = {}
-        performance_data = {}
-        
-        # Create data for each athlete
-        for jersey_number, athlete in athlete_details.items():
-            # Initialize athlete data structure
-            athletes_data[jersey_number] = {
-                'id': athlete['id'],
-                'name': athlete['name'],
-                'jersey_number': jersey_number,
-                'track_id': None,
-                'pose_history': [],
-                'position_history': [],
-                'speed_history': []
-            }
-            
-            # Initialize metrics (but don't create fake Fitbit data)
-            athletes_data[jersey_number]['metrics'] = initialize_metrics(sport_type)
-            athletes_data[jersey_number]['fitbit_data'] = initialize_fitbit_data()
-        
-        # Add the jersey_to_athlete_map to the athletes_data for jersey number detection
-        athletes_data['_jersey_map'] = jersey_to_athlete_map
-        
-        # Process the video
-        try:
-            if video_exists:
-                update_progress(0.3, 'detection', 'Analyzing video footage...')
-                print(f"Starting video processing for match {match_id}")
-                # Create output directory if it doesn't exist
-                output_dir = os.path.join(tempfile.gettempdir(), 'processed_videos')
-                os.makedirs(output_dir, exist_ok=True)
+        def progress_callback(frame_count, total_frames, stage_name="processing"):
+            nonlocal last_progress_update
+            # Limit updates to avoid flooding Firestore (once per second)
+            current_time = time.time()
+            if current_time - last_progress_update >= 1.0:
+                progress_percent = min(0.9, 0.3 + (frame_count / total_frames * 0.6))
                 
-                # Generate output path
-                output_filename = f"processed_{match_id}.mp4"
-                output_path = os.path.join(output_dir, output_filename)
+                # Calculate more detailed metrics
+                elapsed_time = current_time - processing_start_time
+                frames_per_second = frame_count / max(elapsed_time, 0.1)
                 
-                # Set up a progress callback for the video processing
-                last_progress_update = time.time()
-                
-                def progress_callback(frame_count, total_frames, stage_name="processing"):
-                    nonlocal last_progress_update
-                    # Limit updates to avoid flooding Firestore (once per second)
-                    current_time = time.time()
-                    if current_time - last_progress_update >= 1.0:
-                        progress_percent = min(0.9, 0.3 + (frame_count / total_frames * 0.6))
-                        update_progress(
-                            progress_percent, 
-                            stage_name, 
-                            f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%)"
-                        )
-                        last_progress_update = current_time
-                
-                # Fix the function call to include progress callback
-                processed_video_path = process_video(
-                    video_path, output_path, athletes_data, sport_type, 
-                    progress_callback=progress_callback
-                )
-                print(f"Video processing completed. Output path: {processed_video_path}")
-                update_progress(0.9, 'finalizing', 'Video processing completed, finalizing results...')
-                
-                # Upload processed video to Cloudinary
-                if processed_video_path and os.path.exists(processed_video_path):
-                    try:
-                        update_progress(0.95, 'upload', 'Uploading processed video...')
-                        processed_video_url = upload_to_cloudinary(processed_video_path, f"{match_id}_processed")
-                        print(f"Processed video uploaded to Cloudinary: {processed_video_url}")
-                        update_progress(0.98, 'completing', 'Processed video uploaded, completing analysis...')
-                    except Exception as upload_error:
-                        print(f"Error uploading processed video to Cloudinary: {upload_error}")
-                        processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
-                        update_progress(0.95, 'error', 'Error uploading processed video, using fallback URL')
+                if total_frames > 0 and frame_count > 0:
+                    estimated_total_time = elapsed_time * (total_frames / frame_count)
+                    remaining_time = max(0, estimated_total_time - elapsed_time)
+                    remaining_minutes = int(remaining_time / 60)
+                    remaining_seconds = int(remaining_time % 60)
+                    
+                    message = (
+                        f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%) - "
+                        f"FPS: {frames_per_second:.1f}, Est. time remaining: {remaining_minutes}m {remaining_seconds}s"
+                    )
                 else:
-                    print("Processed video file not found or invalid")
-                    processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
-                    update_progress(0.95, 'error', 'Processed video file not found, using fallback URL')
-            else:
-                print("Skipping video processing as video file is invalid")
-                processed_video_url = f"https://example.com/processed_videos/{match_id}.mp4"
-                update_progress(0.5, 'error', 'Invalid video file, skipping processing')
-        except Exception as process_error:
-            print(f"Error processing video: {process_error}")
-            # Update match with error status
-            match_ref.update({
-                'status': 'processing_failed',
-                'error_message': f'Error processing video: {str(process_error)}',
-                'processing_error_at': datetime.datetime.now()
-            })
-            return
-        
-        # Extract performance data from athletes_data
-        for jersey_number, athlete_data in athletes_data.items():
-            if jersey_number != '_jersey_map' and isinstance(athlete_data, dict):  # Skip the jersey map and ensure it's a dict
-                athlete_id = athlete_data.get('id')
-                if athlete_id:
-                    # Create a safe copy of metrics and fitbit data
-                    metrics = {}
-                    fitbit_data = {}
-                    
-                    # Safely extract metrics
-                    if 'metrics' in athlete_data and isinstance(athlete_data['metrics'], dict):
-                        metrics = athlete_data['metrics']
-                    
-                    # Safely extract fitbit data
-                    if 'fitbit_data' in athlete_data and isinstance(athlete_data['fitbit_data'], dict):
-                        fitbit_data = athlete_data['fitbit_data']
-                    
-                    # Store in performance data
-                    performance_data[athlete_id] = {
-                        'metrics': metrics,
-                        'fitbit_data': fitbit_data
-                    }
-        
-        # Update match document with processed data
-        try:
-            # Check again if the match document still exists
-            match_doc = match_ref.get()
-            if not match_doc.exists:
-                print(f"Error: Match document {match_id} no longer exists")
-                return
+                    message = f"Processing frame {frame_count}/{total_frames}"
                 
-            # Update the existing document with processed data
-            update_data = {
-                'status': 'completed',
-                'processing_completed_at': datetime.datetime.now(),
-                'original_video_url': video_url,
-                'processed_video_url': processed_video_url,
-                'performance_data': performance_data,
-                'processing_progress': 1.0,
-                'processing_stage': 'completed',
-                'processing_message': 'Video processing completed successfully'
-            }
-            
-            # Only add coach_id if it's not already set
-            if not match_doc.to_dict().get('coach_id'):
-                update_data['coach_id'] = coach_id
-                
-            match_ref.update(update_data)
-            print(f"Updated match {match_id} with processed data")
-            
-            # Return success response
-            return {
-                'match_id': match_id,
-                'status': 'success',
-                'message': 'Video processed successfully',
-                'original_video_url': video_url,
-                'processed_video_url': processed_video_url
-            }
-        except Exception as update_error:
-            print(f"Error updating match document: {update_error}")
-            # Try one more time with a new transaction
-            try:
-                match_ref.update({
-                    'status': 'completed',
-                    'processing_completed_at': datetime.datetime.now(),
-                    'original_video_url': video_url,
-                    'processed_video_url': processed_video_url,
-                    'performance_data': performance_data
-                })
-                print(f"Updated match {match_id} with processed data on second attempt")
-            except Exception as retry_error:
-                print(f"Error updating match document on retry: {retry_error}")
-            
-            # Return error response but don't raise exception
-            return {
-                'match_id': match_id,
-                'status': 'error',
-                'message': f'Error updating match document: {update_error}'
-            }
+                update_progress(
+                    progress_percent, 
+                    stage_name, 
+                    message
+                )
+                last_progress_update = current_time
+        
+        # Record the start time for calculating processing speed
+        processing_start_time = time.time()
+        
+        # Fix the function call to include progress callback
+        processed_video_path = process_video(
+            video_path, output_path, athletes_data, sport_type, 
+            progress_callback=progress_callback
+        )
+        
+        # Update match status to completed
+        match_ref.update({
+            'status': 'completed',
+            'processing_completed_at': datetime.datetime.now(),
+            'processed_video_url': processed_video_path,
+            'processing_progress': 1.0,
+            'processing_stage': 'completed',
+            'processing_message': 'Video processing completed successfully'
+        })
+        
+        # Return success response
+        return {
+            'match_id': match_id,
+            'status': 'success',
+            'message': 'Video processed successfully',
+            'processed_video_url': processed_video_path
+        }
     except Exception as e:
-        print(f"Error in process_video_background: {e}")
-        try:
-            # Try to update match status to error
-            db = firestore.client()
-            match_ref = db.collection('matches').document(match_id)
-            match_ref.update({
-                'status': 'error',
-                'error_message': str(e),
-                'processing_error_at': datetime.datetime.now()
-            })
-            print(f"Updated match {match_id} status to 'error'")
-        except Exception as update_error:
-            print(f"Error updating match status to error: {update_error}")
-        
-        # Return error response
+        print(f"Error processing video: {e}")
+        # Update match status to failed
+        match_ref.update({
+            'status': 'processing_failed',
+            'error_message': f'Error processing video: {str(e)}',
+            'processing_error_at': datetime.datetime.now()
+        })
         return {
             'match_id': match_id,
             'status': 'error',
@@ -1739,6 +1580,9 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
     try:
         # Create a jersey detector instance
         print("Initializing jersey detector...")
+        if progress_callback:
+            progress_callback(0, 100, "initializing_detectors")
+            
         jersey_detector = JerseyDetector()
         
         # Get valid jersey numbers from athletes_data
@@ -1769,10 +1613,43 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         
         try:
             import easyocr
-            reader = easyocr.Reader(['en'], gpu=False)  # Set gpu=True if available
-            print("Loaded EasyOCR model")
-            if progress_callback:
-                progress_callback(0, 100, "ocr_loaded")
+            print("EasyOCR imported, initializing Reader (this may take several minutes on CPU)...")
+            
+            # Log the start time for OCR loading
+            ocr_start_time = time.time()
+            
+            # Provide updates during OCR loading
+            def ocr_loading_progress():
+                elapsed = time.time() - ocr_start_time
+                print(f"Still loading OCR model... (elapsed: {elapsed:.1f}s)")
+                if progress_callback:
+                    progress_callback(0, 100, f"loading_ocr (elapsed: {elapsed:.1f}s)")
+            
+            # Start a background thread to report OCR loading progress
+            import threading
+            stop_progress_thread = threading.Event()
+            
+            def report_progress():
+                while not stop_progress_thread.is_set():
+                    ocr_loading_progress()
+                    time.sleep(10)  # Update every 10 seconds
+            
+            progress_thread = threading.Thread(target=report_progress)
+            progress_thread.daemon = True
+            progress_thread.start()
+            
+            # Initialize the OCR reader
+            try:
+                reader = easyocr.Reader(['en'], gpu=False)  # Set gpu=True if available
+                elapsed = time.time() - ocr_start_time
+                print(f"Loaded EasyOCR model successfully in {elapsed:.1f} seconds")
+                if progress_callback:
+                    progress_callback(0, 100, "ocr_loaded")
+            finally:
+                # Stop the progress reporting thread
+                stop_progress_thread.set()
+                if progress_thread.is_alive():
+                    progress_thread.join(timeout=1.0)
         except Exception as e:
             print(f"Error loading EasyOCR: {e}")
             
@@ -1909,6 +1786,15 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
         # Store frame count in athletes_data
         athletes_data['_frame_count'] = total_frames
         
+        # Create a dictionary to track processing metrics
+        processing_metrics = {
+            'start_time': time.time(),
+            'frames_processed': 0,
+            'processing_rate': 0,
+            'estimated_remaining_time': 0,
+            'last_metrics_update': time.time()
+        }
+        
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -1921,11 +1807,39 @@ def process_video(input_path, output_path, athletes_data, sport_type, progress_c
                 continue
             
             processed_count += 1
+            processing_metrics['frames_processed'] = processed_count
+            
+            # Update processing metrics every 10 frames
+            current_time = time.time()
+            if processed_count % 10 == 0 or current_time - processing_metrics['last_metrics_update'] >= 5.0:
+                elapsed = current_time - processing_metrics['start_time']
+                processing_metrics['processing_rate'] = processed_count / max(0.1, elapsed)
+                
+                if total_frames > 0 and processed_count > 0:
+                    estimated_total_frames = total_frames / 2  # Since we're processing every 2nd frame
+                    estimated_total_time = elapsed * (estimated_total_frames / processed_count)
+                    processing_metrics['estimated_remaining_time'] = max(0, estimated_total_time - elapsed)
+                
+                processing_metrics['last_metrics_update'] = current_time
             
             # Report progress
-            if progress_callback and frame_count % 5 == 0:  # Report every 5 frames
-                progress_callback(frame_count, total_frames)
+            if progress_callback and (frame_count % 5 == 0 or current_time - processing_metrics['last_metrics_update'] >= 5.0):
+                # Calculate the estimated remaining time
+                remaining_time = processing_metrics['estimated_remaining_time']
+                remaining_minutes = int(remaining_time / 60)
+                remaining_seconds = int(remaining_time % 60)
                 
+                # Create a detailed stage message
+                stage_message = f"processing_frame_{frame_count}"
+                detail_message = (
+                    f"Processing frame {frame_count}/{total_frames} ({(frame_count/total_frames*100):.1f}%) - "
+                    f"Rate: {processing_metrics['processing_rate']:.2f} fps, "
+                    f"Est. remaining: {remaining_minutes}m {remaining_seconds}s"
+                )
+                
+                progress_callback(frame_count, total_frames, stage_message)
+                print(detail_message)  # Log the detailed message
+            
             # Create a copy for annotation
             annotated_frame = frame.copy()
             
