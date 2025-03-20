@@ -58,21 +58,24 @@ RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
-# First, create a script to inspect ultralytics module structure
-RUN echo 'import inspect, pkgutil; import ultralytics; print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)]); print("Ultralytics structure:", dir(ultralytics))' > /tmp/inspect_ultralytics.py && \
-    python /tmp/inspect_ultralytics.py
+# Deeper inspection of ultralytics module structure to find Pose model
+RUN echo 'import inspect, pkgutil; import ultralytics; print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)]); import ultralytics.yolo; print("Modules in ultralytics.yolo:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.yolo.__path__)]); import importlib; try: module = importlib.import_module("ultralytics.yolo.v8.pose"); print("Found pose module in ultralytics.yolo.v8.pose"); print("Contents:", dir(module)); except ImportError: print("No module ultralytics.yolo.v8.pose"); try: from ultralytics import YOLO; model = YOLO("yolov8n-pose.pt"); print("Model type:", type(model)); print("Model dir:", dir(model)); except Exception as e: print("Error loading model:", e)' > /tmp/deep_inspect.py && \
+    python /tmp/deep_inspect.py
 
-# Create the correct monkey patch for PoseModel in ultralytics 8.0.20
+# Create the monkey patch based on inspection results
 RUN mkdir -p /tmp/patch && \
     echo 'import sys' > /tmp/patch/patch.py && \
-    echo 'from ultralytics.models.pose import Pose as PoseModel' >> /tmp/patch/patch.py && \
+    echo 'from ultralytics import YOLO' >> /tmp/patch/patch.py && \
+    echo 'temp_model = YOLO("yolov8n-pose.pt")' >> /tmp/patch/patch.py && \
     echo 'import ultralytics.nn.tasks' >> /tmp/patch/patch.py && \
-    echo 'sys.modules["ultralytics.nn.tasks"].PoseModel = PoseModel' >> /tmp/patch/patch.py && \
-    cat /tmp/patch/patch.py && \
-    python -c "import sys; sys.path.append('/tmp/patch'); import patch"
+    echo 'sys.modules["ultralytics.nn.tasks"].PoseModel = type(temp_model)' >> /tmp/patch/patch.py && \
+    cat /tmp/patch/patch.py
+
+# Apply the patch
+RUN python -c "import sys; sys.path.append('/tmp/patch'); import patch; print('Monkey patch applied successfully')"
 
 # Now load the models after the patch is applied
-RUN python -c "from ultralytics import YOLO; print('Loading detection models...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); pose_model = YOLO('yolov8n-pose.pt'); print('All models loaded successfully'); print('Pose model type:', type(pose_model)); print('Pose model attributes:', dir(pose_model))"
+RUN python -c "from ultralytics import YOLO; print('Loading detection models...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); pose_model = YOLO('yolov8n-pose.pt'); print('All models loaded successfully'); print('Pose model type:', type(pose_model))"
 
 # Download EasyOCR models during build time (English model)
 RUN python -c "import easyocr; reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, model_storage_directory='/root/.EasyOCR/model')"
