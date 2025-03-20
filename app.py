@@ -1325,7 +1325,7 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         if not match_doc.exists:
             raise ValueError(f"Match {match_id} not found in Firestore")
             
-        match_data = match_doc.get()
+        match_data = match_doc.to_dict()
         sport_type = match_data.get('sport', sport_type)
         
         # Fetch athletes in match
@@ -1344,7 +1344,7 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
                 athlete_doc = athlete_ref.get()
                 
                 if athlete_doc.exists:
-                    athlete_data = athlete_doc.get()
+                    athlete_data = athlete_doc.to_dict()
                     athletes_data[jersey_number] = {
                         'id': athlete_id,
                         'name': athlete_data.get('name', 'Unknown'),
