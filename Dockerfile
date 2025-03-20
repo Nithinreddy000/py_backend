@@ -175,6 +175,14 @@ ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
 ENV DISABLE_ML_MODELS=false
 ENV LAZY_LOAD_MODELS=false
+ENV GUNICORN_TIMEOUT=3600
+ENV GUNICORN_WORKERS=1
+ENV GUNICORN_THREADS=4
+ENV GUNICORN_WORKER_CLASS=gthread
+ENV GUNICORN_MAX_REQUESTS=1
+ENV GUNICORN_MAX_REQUESTS_JITTER=0
+ENV GUNICORN_KEEP_ALIVE=5
+ENV GUNICORN_GRACEFUL_TIMEOUT=3600
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
@@ -182,19 +190,23 @@ RUN /usr/local/bin/blender --version
 # Expose the port
 EXPOSE 8080
 
-# Add healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+# Add healthcheck with increased timeout
+HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run the application with Gunicorn with increased timeout
+# Run the application with Gunicorn with increased timeout and optimized settings for video processing
 CMD gunicorn --bind 0.0.0.0:$PORT \
-    --workers 2 \
-    --threads 8 \
-    --timeout 600 \
-    --graceful-timeout 300 \
-    --keep-alive 5 \
-    --max-requests 1000 \
-    --max-requests-jitter 50 \
-    --worker-class gthread \
+    --workers ${GUNICORN_WORKERS:-1} \
+    --threads ${GUNICORN_THREADS:-4} \
+    --timeout ${GUNICORN_TIMEOUT:-3600} \
+    --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-3600} \
+    --keep-alive ${GUNICORN_KEEP_ALIVE:-5} \
+    --max-requests ${GUNICORN_MAX_REQUESTS:-1} \
+    --max-requests-jitter ${GUNICORN_MAX_REQUESTS_JITTER:-0} \
+    --worker-class ${GUNICORN_WORKER_CLASS:-gthread} \
     --log-level info \
+    --access-logfile - \
+    --error-logfile - \
+    --capture-output \
+    --enable-stdio-inheritance \
     app:app 
