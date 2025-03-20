@@ -1286,10 +1286,27 @@ def process_match_video():
             'status': 'error'
         }), 500
 
+# Helper function to get timezone abbreviation
+def get_timezone_abbreviation():
+    """
+    Get the current timezone abbreviation.
+    
+    Returns:
+        str: Timezone abbreviation (e.g., 'UTC', 'EST', 'PST')
+    """
+    try:
+        import time
+        return time.strftime('%Z')
+    except Exception:
+        return 'UTC'
+
 def process_video_background(video_path, match_id, sport_type, coach_id):
     """Background thread for video processing to avoid blocking the main thread."""
     try:
         print(f"Starting video processing for match {match_id}")
+        
+        # Initialize Firestore client
+        db = firestore.client()
         
         # Get athlete information from Firestore
         athletes_data = {}
@@ -1369,7 +1386,7 @@ def process_video_background(video_path, match_id, sport_type, coach_id):
         def update_progress(progress, stage, message=""):
             try:
                 # Add timestamp and enhanced progress information
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " " + get_timezone_abbreviation()
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " " + get_timezone_abbreviation()
                 
                 # Update the match document with progress information
                 match_ref.update({
