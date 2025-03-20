@@ -46,8 +46,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Download spaCy English model
 RUN python -m spacy download en_core_web_sm
 
-# Install specific version of ultralytics that works with pose models and easyocr
-RUN pip install --no-cache-dir ultralytics==8.0.20 easyocr && \
+# Install a known working version of ultralytics
+RUN pip install --no-cache-dir ultralytics==8.0.196 easyocr && \
     mkdir -p /root/.cache/torch/hub/ultralytics_yolov5_master && \
     mkdir -p /root/.cache/torch/hub/checkpoints && \
     mkdir -p /root/.config/easyocr && \
@@ -58,30 +58,49 @@ RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt -O /root/.cache/torch/hub/checkpoints/yolov8s.pt && \
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
-# Deeper inspection of ultralytics module structure to find Pose model
-RUN echo 'import inspect, pkgutil; import ultralytics; print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)]); import ultralytics.yolo; print("Modules in ultralytics.yolo:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.yolo.__path__)]); import importlib; try: module = importlib.import_module("ultralytics.yolo.v8.pose"); print("Found pose module in ultralytics.yolo.v8.pose"); print("Contents:", dir(module)); except ImportError: print("No module ultralytics.yolo.v8.pose"); try: from ultralytics import YOLO; model = YOLO("yolov8n-pose.pt"); print("Model type:", type(model)); print("Model dir:", dir(model)); except Exception as e: print("Error loading model:", e)' > /tmp/deep_inspect.py && \
-    python /tmp/deep_inspect.py
+# Create a proper multi-line inspection script
+RUN echo '#!/usr/bin/env python3\n\
+import inspect\n\
+import pkgutil\n\
+import ultralytics\n\
+\n\
+print("Available modules in ultralytics:", [name for _, name, _ in pkgutil.iter_modules(ultralytics.__path__)])\n\
+\n\
+# Try to load a pose model\n\
+try:\n\
+    from ultralytics import YOLO\n\
+    model = YOLO("yolov8n-pose.pt")\n\
+    print("Model loaded successfully!")\n\
+    print("Model type:", type(model))\n\
+    print("Model class name:", model.__class__.__name__)\n\
+except Exception as e:\n\
+    print("Error loading model:", e)\n\
+' > /tmp/inspect_ultralytics.py && chmod +x /tmp/inspect_ultralytics.py && python /tmp/inspect_ultralytics.py
 
-# Create the monkey patch based on inspection results
-RUN mkdir -p /tmp/patch && \
-    echo 'import sys' > /tmp/patch/patch.py && \
-    echo 'from ultralytics import YOLO' >> /tmp/patch/patch.py && \
-    echo 'temp_model = YOLO("yolov8n-pose.pt")' >> /tmp/patch/patch.py && \
-    echo 'import ultralytics.nn.tasks' >> /tmp/patch/patch.py && \
-    echo 'sys.modules["ultralytics.nn.tasks"].PoseModel = type(temp_model)' >> /tmp/patch/patch.py && \
-    cat /tmp/patch/patch.py
+# Create the monkey patch script
+RUN echo '#!/usr/bin/env python3\n\
+import sys\n\
+from ultralytics import YOLO\n\
+import ultralytics.nn.tasks\n\
+\n\
+# Create a pose model instance\n\
+model = YOLO("yolov8n-pose.pt")\n\
+\n\
+# Register the model class as PoseModel\n\
+model_class = model.__class__\n\
+print("Using model class:", model_class.__name__, "as PoseModel")\n\
+sys.modules["ultralytics.nn.tasks"].PoseModel = model_class\n\
+print("Monkey patch applied successfully")\n\
+' > /tmp/apply_patch.py && chmod +x /tmp/apply_patch.py && python /tmp/apply_patch.py
 
-# Apply the patch
-RUN python -c "import sys; sys.path.append('/tmp/patch'); import patch; print('Monkey patch applied successfully')"
-
-# Now load the models after the patch is applied
-RUN python -c "from ultralytics import YOLO; print('Loading detection models...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); print('Loading pose model...'); pose_model = YOLO('yolov8n-pose.pt'); print('All models loaded successfully'); print('Pose model type:', type(pose_model))"
+# Now load the models to verify everything works
+RUN python -c "from ultralytics import YOLO; print('Loading all models to verify...'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models loaded successfully')"
 
 # Download EasyOCR models during build time (English model)
 RUN python -c "import easyocr; reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, model_storage_directory='/root/.EasyOCR/model')"
 
-# Make the patch permanent by adding it to the Python path
-RUN cp /tmp/patch/patch.py /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_patch.py && \
+# Make the patch permanent
+RUN cp /tmp/apply_patch.py /usr/local/lib/python3.9/site-packages/ultralytics/nn/tasks_pose_patch.py && \
     echo "import ultralytics.nn.tasks_pose_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/nn/__init__.py
 
 # Copy the rest of the application
@@ -109,7 +128,7 @@ ENV LAZY_LOAD_MODELS=false
 RUN /usr/local/bin/blender --version
 
 # Verify all models are available and the patch works
-RUN python -c "from ultralytics import YOLO; print('Checking if all models work:'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models verified successfully')"
+RUN python -c "from ultralytics import YOLO; print('Final verification of all models:'); YOLO('yolov8n.pt'); YOLO('yolov8s.pt'); YOLO('yolov8n-pose.pt'); print('All models verified successfully')"
 
 # Expose the port
 EXPOSE 8080
