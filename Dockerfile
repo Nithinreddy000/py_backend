@@ -66,9 +66,20 @@ ENV FLASK_DEBUG=0
 ENV CORS_ENABLED=true
 ENV DISABLE_ML_MODELS=false
 ENV LAZY_LOAD_MODELS=true
+# Add memory optimization
+ENV MALLOC_ARENA_MAX=2
+ENV TF_FORCE_GPU_ALLOW_GROWTH=true
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV CUDA_VISIBLE_DEVICES="-1"
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
 
 # Verify Blender installation
 RUN /usr/local/bin/blender --version
+
+# Make the startup script and monitor script executable
+COPY start_server.sh monitor.py /app/
+RUN chmod +x /app/start_server.sh /app/monitor.py
 
 # Expose the port
 EXPOSE 8080
@@ -77,5 +88,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run the application with Gunicorn with increased timeout
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 300 --graceful-timeout 300 --keep-alive 5 app:app 
+# Run the application using our startup script
+CMD ["/app/start_server.sh"] 
