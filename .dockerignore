@@ -1,0 +1,77 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Temporary files
+tmp/
+temp/
+
+# Virtual Environments
+venv/
+ENV/
+.env
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Git and GitHub
+.git
+.github
+.gitignore
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large data files, models etc.
+*.h5
+*.hdf5
+*.pkl
+*.model
+models/
+data/
+logs/
+
+# Docker related
+Dockerfile.dev
+docker-compose*.yml
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Debug logs
+*.log 
