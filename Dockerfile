@@ -61,241 +61,250 @@ RUN wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov
     wget -q https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n-pose.pt -O /root/.cache/torch/hub/checkpoints/yolov8n-pose.pt
 
 # Improved EasyOCR initialization - Create a script to initialize and cache models
-RUN echo '#!/usr/bin/env python3\n\
-import os\n\
-import time\n\
-import tempfile\n\
-import numpy as np\n\
-import cv2\n\
-\n\
-print("Initializing and caching EasyOCR model...")\n\
-start_time = time.time()\n\
-\n\
-# Create a simple test image with numbers\n\
-test_img = np.zeros((100, 200), dtype=np.uint8)\n\
-cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)\n\
-test_img_path = os.path.join(tempfile.gettempdir(), "test_ocr.jpg")\n\
-cv2.imwrite(test_img_path, test_img)\n\
-\n\
-# Initialize and verify EasyOCR\n\
-import easyocr\n\
-model_dir = "/root/.EasyOCR/model"\n\
-print(f"Using model directory: {model_dir}")\n\
-\n\
-# Make sure the directory exists\n\
-os.makedirs(model_dir, exist_ok=True)\n\
-\n\
-# Initialize reader with download_enabled\n\
-print("Downloading and caching models...")\n\
-reader = easyocr.Reader([\'en\'], gpu=False, download_enabled=True, \n\
-                        model_storage_directory=model_dir, \n\
-                        user_network_directory=model_dir, \n\
-                        recog_network="english_g2")\n\
-\n\
-# Test OCR on sample image to ensure everything is loaded\n\
-print("Testing OCR on sample image...")\n\
-results = reader.readtext(test_img_path)\n\
-print(f"OCR results: {results}")\n\
-\n\
-# List all downloaded models to verify\n\
-print("Cached model files:")\n\
-for root, dirs, files in os.walk(model_dir):\n\
-    for file in files:\n\
-        print(f" - {os.path.join(root, file)}")\n\
-\n\
-print(f"EasyOCR initialization completed in {time.time() - start_time:.2f} seconds")\n\
-' > /tmp/init_easyocr.py && chmod +x /tmp/init_easyocr.py
+COPY <<-'EOT' /tmp/init_easyocr.py
+#!/usr/bin/env python3
+import os
+import time
+import tempfile
+import numpy as np
+import cv2
+
+print("Initializing and caching EasyOCR model...")
+start_time = time.time()
+
+# Create a simple test image with numbers
+test_img = np.zeros((100, 200), dtype=np.uint8)
+cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)
+test_img_path = os.path.join(tempfile.gettempdir(), "test_ocr.jpg")
+cv2.imwrite(test_img_path, test_img)
+
+# Initialize and verify EasyOCR
+import easyocr
+model_dir = "/root/.EasyOCR/model"
+print(f"Using model directory: {model_dir}")
+
+# Make sure the directory exists
+os.makedirs(model_dir, exist_ok=True)
+
+# Initialize reader with download_enabled
+print("Downloading and caching models...")
+reader = easyocr.Reader(['en'], gpu=False, download_enabled=True, 
+                        model_storage_directory=model_dir, 
+                        user_network_directory=model_dir, 
+                        recog_network="english_g2")
+
+# Test OCR on sample image to ensure everything is loaded
+print("Testing OCR on sample image...")
+results = reader.readtext(test_img_path)
+print(f"OCR results: {results}")
+
+# List all downloaded models to verify
+print("Cached model files:")
+for root, dirs, files in os.walk(model_dir):
+    for file in files:
+        print(f" - {os.path.join(root, file)}")
+
+print(f"EasyOCR initialization completed in {time.time() - start_time:.2f} seconds")
+EOT
+
+RUN chmod +x /tmp/init_easyocr.py
 
 # Run the initialization script to download and cache models
 RUN python /tmp/init_easyocr.py
 
 # Create an alternative PaddleOCR initialization script as a backup OCR option
 RUN pip install --no-cache-dir paddleocr>=2.6.0
-RUN echo '#!/usr/bin/env python3\n\
-import os\n\
-import time\n\
-import tempfile\n\
-import numpy as np\n\
-import cv2\n\
-\n\
-print("Initializing and caching PaddleOCR model as backup...")\n\
-start_time = time.time()\n\
-\n\
-# Create a simple test image with numbers\n\
-test_img = np.zeros((100, 200), dtype=np.uint8)\n\
-cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)\n\
-test_img_path = os.path.join(tempfile.gettempdir(), "test_ocr_paddle.jpg")\n\
-cv2.imwrite(test_img_path, test_img)\n\
-\n\
-# Initialize and verify PaddleOCR\n\
-from paddleocr import PaddleOCR\n\
-ocr_model_dir = "/root/.paddleocr"\n\
-print(f"Using model directory: {ocr_model_dir}")\n\
-\n\
-# Make sure the directory exists\n\
-os.makedirs(ocr_model_dir, exist_ok=True)\n\
-\n\
-# Initialize PaddleOCR\n\
-print("Downloading and caching PaddleOCR models...")\n\
-ocr = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False, \n\
-                show_log=True, use_space_char=True)\n\
-\n\
-# Test OCR on sample image to ensure everything is loaded\n\
-print("Testing PaddleOCR on sample image...")\n\
-results = ocr.ocr(test_img_path, cls=True)\n\
-print(f"OCR results: {results}")\n\
-\n\
-print(f"PaddleOCR initialization completed in {time.time() - start_time:.2f} seconds")\n\
-' > /tmp/init_paddleocr.py && chmod +x /tmp/init_paddleocr.py
+COPY <<-'EOT' /tmp/init_paddleocr.py
+#!/usr/bin/env python3
+import os
+import time
+import tempfile
+import numpy as np
+import cv2
+
+print("Initializing and caching PaddleOCR model as backup...")
+start_time = time.time()
+
+# Create a simple test image with numbers
+test_img = np.zeros((100, 200), dtype=np.uint8)
+cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)
+test_img_path = os.path.join(tempfile.gettempdir(), "test_ocr_paddle.jpg")
+cv2.imwrite(test_img_path, test_img)
+
+# Initialize and verify PaddleOCR
+from paddleocr import PaddleOCR
+ocr_model_dir = "/root/.paddleocr"
+print(f"Using model directory: {ocr_model_dir}")
+
+# Make sure the directory exists
+os.makedirs(ocr_model_dir, exist_ok=True)
+
+# Initialize PaddleOCR
+print("Downloading and caching PaddleOCR models...")
+ocr = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False, 
+                show_log=True, use_space_char=True)
+
+# Test OCR on sample image to ensure everything is loaded
+print("Testing PaddleOCR on sample image...")
+results = ocr.ocr(test_img_path, cls=True)
+print(f"OCR results: {results}")
+
+print(f"PaddleOCR initialization completed in {time.time() - start_time:.2f} seconds")
+EOT
+
+RUN chmod +x /tmp/init_paddleocr.py
 
 # Run the PaddleOCR initialization script
 RUN python /tmp/init_paddleocr.py
 
 # Create a wrapper script that combines all OCR strategies
-RUN echo '#!/usr/bin/env python3\n\
-import numpy as np\n\
-import os\n\
-import sys\n\
-\n\
-# Create OCR wrapper class that tries multiple OCR systems\n\
-class MultiOCR:\n\
-    def __init__(self, use_gpu=False):\n\
-        self.readers = []\n\
-        self.reader_names = []\n\
-        \n\
-        # Try to initialize EasyOCR\n\
-        try:\n\
-            import easyocr\n\
-            model_dir = "/root/.EasyOCR/model"\n\
-            print("Initializing EasyOCR...")\n\
-            easy_reader = easyocr.Reader([\'en\'], gpu=use_gpu, \n\
-                            model_storage_directory=model_dir, \n\
-                            download_enabled=False,  # Don\'t download again\n\
-                            user_network_directory=model_dir, \n\
-                            recog_network="english_g2")\n\
-            \n\
-            # Define wrapper to standardize output format\n\
-            def easy_wrapper(image, **kwargs):\n\
-                return easy_reader.readtext(image, **kwargs)\n\
-                \n\
-            self.readers.append(easy_wrapper)\n\
-            self.reader_names.append("EasyOCR")\n\
-            print("EasyOCR initialized successfully")\n\
-        except Exception as e:\n\
-            print(f"Error initializing EasyOCR: {e}")\n\
-        \n\
-        # Try to initialize PaddleOCR\n\
-        try:\n\
-            from paddleocr import PaddleOCR\n\
-            print("Initializing PaddleOCR...")\n\
-            paddle_reader = PaddleOCR(use_angle_cls=True, lang=\'en\', use_gpu=use_gpu)\n\
-            \n\
-            # Define wrapper to standardize output format\n\
-            def paddle_wrapper(image, **kwargs):\n\
-                results = paddle_reader.ocr(image, cls=True)\n\
-                # Convert PaddleOCR format to EasyOCR format\n\
-                standardized = []\n\
-                if results and len(results) > 0 and results[0]:\n\
-                    for line in results[0]:\n\
-                        if len(line) == 2:  # bbox, (text, confidence)\n\
-                            bbox, (text, conf) = line\n\
-                            # PaddleOCR returns 4 points, EasyOCR wants 4 points too\n\
-                            standardized.append([bbox, text, conf])\n\
-                return standardized\n\
-                \n\
-            self.readers.append(paddle_wrapper)\n\
-            self.reader_names.append("PaddleOCR")\n\
-            print("PaddleOCR initialized successfully")\n\
-        except Exception as e:\n\
-            print(f"Error initializing PaddleOCR: {e}")\n\
-        \n\
-        # Add a fallback OCR using OpenCV + Tesseract if available\n\
-        try:\n\
-            import pytesseract\n\
-            import cv2\n\
-            \n\
-            def tesseract_wrapper(image, **kwargs):\n\
-                # Convert to grayscale if needed\n\
-                if len(image.shape) == 3:\n\
-                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)\n\
-                else:\n\
-                    gray = image\n\
-                    \n\
-                # Apply threshold to get binary image\n\
-                thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]\n\
-                \n\
-                # Perform OCR\n\
-                data = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT)\n\
-                \n\
-                # Convert to EasyOCR format\n\
-                results = []\n\
-                for i in range(len(data["text"])):\n\
-                    if data["text"][i].strip():\n\
-                        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]\n\
-                        # Create bbox in format [[x1,y1], [x2,y1], [x2,y2], [x1,y2]]\n\
-                        bbox = [[x, y], [x+w, y], [x+w, y+h], [x, y+h]]\n\
-                        conf = float(data["conf"][i]) / 100.0\n\
-                        results.append([bbox, data["text"][i], conf])\n\
-                return results\n\
-                \n\
-            self.readers.append(tesseract_wrapper)\n\
-            self.reader_names.append("Tesseract")\n\
-            print("Tesseract OCR initialized successfully")\n\
-        except Exception as e:\n\
-            print(f"Tesseract not available: {e}")\n\
-        \n\
-        # Always add a dummy reader as final fallback\n\
-        def dummy_wrapper(image, **kwargs):\n\
-            return []\n\
-            \n\
-        self.readers.append(dummy_wrapper)\n\
-        self.reader_names.append("Dummy")\n\
-        \n\
-        print(f"MultiOCR initialized with {len(self.readers)} readers: {self.reader_names}")\n\
-    \n\
-    def readtext(self, image, **kwargs):\n\
-        """Try all readers in sequence until one works."""\n\
-        for i, (reader, name) in enumerate(zip(self.readers, self.reader_names)):\n\
-            try:\n\
-                results = reader(image, **kwargs)\n\
-                if results:  # Only return if we got actual results\n\
-                    print(f"Using {name} OCR results: {len(results)} items found")\n\
-                    return results\n\
-            except Exception as e:\n\
-                print(f"Error with {name} OCR: {e}")\n\
-                # Continue to next reader\n\
-        \n\
-        # If all readers failed, return empty list\n\
-        return []\n\
-\n\
-# Test the MultiOCR class\n\
-if __name__ == "__main__":\n\
-    import cv2\n\
-    import time\n\
-    import tempfile\n\
-    \n\
-    # Create a test image\n\
-    test_img = np.zeros((100, 200), dtype=np.uint8)\n\
-    cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)\n\
-    test_path = os.path.join(tempfile.gettempdir(), "multiocr_test.jpg")\n\
-    cv2.imwrite(test_path, test_img)\n\
-    \n\
-    # Initialize MultiOCR\n\
-    ocr = MultiOCR(use_gpu=False)\n\
-    \n\
-    # Test it\n\
-    start_time = time.time()\n\
-    results = ocr.readtext(test_path)\n\
-    elapsed = time.time() - start_time\n\
-    \n\
-    print(f"MultiOCR test results: {results}")\n\
-    print(f"OCR completed in {elapsed:.2f} seconds")\n\
-\n\
-    # Save to module that can be imported\n\
-    with open("/root/multiocr.py", "w") as f:\n\
-        f.write(open(__file__).read())\n\
-    print("MultiOCR module saved to /root/multiocr.py")\n\
-' > /tmp/multiocr.py && chmod +x /tmp/multiocr.py
+COPY <<-'EOT' /tmp/multiocr.py
+#!/usr/bin/env python3
+import numpy as np
+import os
+import sys
+
+# Create OCR wrapper class that tries multiple OCR systems
+class MultiOCR:
+    def __init__(self, use_gpu=False):
+        self.readers = []
+        self.reader_names = []
+        
+        # Try to initialize EasyOCR
+        try:
+            import easyocr
+            model_dir = "/root/.EasyOCR/model"
+            print("Initializing EasyOCR...")
+            easy_reader = easyocr.Reader(['en'], gpu=use_gpu, 
+                            model_storage_directory=model_dir, 
+                            download_enabled=False,  # Don't download again
+                            user_network_directory=model_dir, 
+                            recog_network="english_g2")
+            
+            # Define wrapper to standardize output format
+            def easy_wrapper(image, **kwargs):
+                return easy_reader.readtext(image, **kwargs)
+                
+            self.readers.append(easy_wrapper)
+            self.reader_names.append("EasyOCR")
+            print("EasyOCR initialized successfully")
+        except Exception as e:
+            print(f"Error initializing EasyOCR: {e}")
+        
+        # Try to initialize PaddleOCR
+        try:
+            from paddleocr import PaddleOCR
+            print("Initializing PaddleOCR...")
+            paddle_reader = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=use_gpu)
+            
+            # Define wrapper to standardize output format
+            def paddle_wrapper(image, **kwargs):
+                results = paddle_reader.ocr(image, cls=True)
+                # Convert PaddleOCR format to EasyOCR format
+                standardized = []
+                if results and len(results) > 0 and results[0]:
+                    for line in results[0]:
+                        if len(line) == 2:  # bbox, (text, confidence)
+                            bbox, (text, conf) = line
+                            # PaddleOCR returns 4 points, EasyOCR wants 4 points too
+                            standardized.append([bbox, text, conf])
+                return standardized
+                
+            self.readers.append(paddle_wrapper)
+            self.reader_names.append("PaddleOCR")
+            print("PaddleOCR initialized successfully")
+        except Exception as e:
+            print(f"Error initializing PaddleOCR: {e}")
+        
+        # Add a fallback OCR using OpenCV + Tesseract if available
+        try:
+            import pytesseract
+            import cv2
+            
+            def tesseract_wrapper(image, **kwargs):
+                # Convert to grayscale if needed
+                if len(image.shape) == 3:
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray = image
+                    
+                # Apply threshold to get binary image
+                thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+                
+                # Perform OCR
+                data = pytesseract.image_to_data(thresh, output_type=pytesseract.Output.DICT)
+                
+                # Convert to EasyOCR format
+                results = []
+                for i in range(len(data["text"])):
+                    if data["text"][i].strip():
+                        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+                        # Create bbox in format [[x1,y1], [x2,y1], [x2,y2], [x1,y2]]
+                        bbox = [[x, y], [x+w, y], [x+w, y+h], [x, y+h]]
+                        conf = float(data["conf"][i]) / 100.0
+                        results.append([bbox, data["text"][i], conf])
+                return results
+                
+            self.readers.append(tesseract_wrapper)
+            self.reader_names.append("Tesseract")
+            print("Tesseract OCR initialized successfully")
+        except Exception as e:
+            print(f"Tesseract not available: {e}")
+        
+        # Always add a dummy reader as final fallback
+        def dummy_wrapper(image, **kwargs):
+            return []
+            
+        self.readers.append(dummy_wrapper)
+        self.reader_names.append("Dummy")
+        
+        print(f"MultiOCR initialized with {len(self.readers)} readers: {self.reader_names}")
+    
+    def readtext(self, image, **kwargs):
+        """Try all readers in sequence until one works."""
+        for i, (reader, name) in enumerate(zip(self.readers, self.reader_names)):
+            try:
+                results = reader(image, **kwargs)
+                if results:  # Only return if we got actual results
+                    print(f"Using {name} OCR results: {len(results)} items found")
+                    return results
+            except Exception as e:
+                print(f"Error with {name} OCR: {e}")
+                # Continue to next reader
+        
+        # If all readers failed, return empty list
+        return []
+
+# Test the MultiOCR class
+if __name__ == "__main__":
+    import cv2
+    import time
+    import tempfile
+    
+    # Create a test image
+    test_img = np.zeros((100, 200), dtype=np.uint8)
+    cv2.putText(test_img, "123", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 2)
+    test_path = os.path.join(tempfile.gettempdir(), "multiocr_test.jpg")
+    cv2.imwrite(test_path, test_img)
+    
+    # Initialize MultiOCR
+    ocr = MultiOCR(use_gpu=False)
+    
+    # Test it
+    start_time = time.time()
+    results = ocr.readtext(test_path)
+    elapsed = time.time() - start_time
+    
+    print(f"MultiOCR test results: {results}")
+    print(f"OCR completed in {elapsed:.2f} seconds")
+
+    # Save to module that can be imported
+    with open("/root/multiocr.py", "w") as f:
+        f.write(open(__file__).read())
+    print("MultiOCR module saved to /root/multiocr.py")
+EOT
+
+RUN chmod +x /tmp/multiocr.py
 
 # Run the multi-OCR script to verify it works
 RUN python /tmp/multiocr.py
@@ -305,150 +314,160 @@ RUN cp /root/multiocr.py /usr/local/lib/python3.9/site-packages/ && \
     cp /root/multiocr.py /app/multiocr.py
 
 # Create a wrapper script to modify EasyOCR behavior
-RUN echo '#!/usr/bin/env python3\n\
-# Monkey patch EasyOCR to be faster\n\
-import sys\n\
-import os\n\
-import time\n\
-\n\
-def patch_easyocr():\n\
-    try:\n\
-        import easyocr\n\
-        original_init = easyocr.Reader.__init__\n\
-        \n\
-        # Override the initialization to use cached models\n\
-        def faster_init(self, lang_list, gpu=True, model_storage_directory=None,\n\
-                       download_enabled=True, user_network_directory=None, recog_network=None,\n\
-                       detector_network=None, **kwargs):\n\
-            # Set default paths to our cached models\n\
-            if model_storage_directory is None:\n\
-                model_storage_directory = "/root/.EasyOCR/model"\n\
-            if user_network_directory is None:\n\
-                user_network_directory = "/root/.EasyOCR/model"\n\
-            if recog_network is None:\n\
-                recog_network = "english_g2"  # Use smaller model\n\
-                \n\
-            # Call original but with download_enabled=False to use cached versions\n\
-            original_init(self, lang_list, gpu=gpu,\n\
-                          model_storage_directory=model_storage_directory,\n\
-                          download_enabled=False,  # Always use cached\n\
-                          user_network_directory=user_network_directory,\n\
-                          recog_network=recog_network,\n\
-                          detector_network=detector_network, **kwargs)\n\
-        \n\
-        # Apply the patch\n\
-        easyocr.Reader.__init__ = faster_init\n\
-        print("Applied EasyOCR initialization patch for faster loading")\n\
-        \n\
-        # Return True for success\n\
-        return True\n\
-    except Exception as e:\n\
-        print(f"Error patching EasyOCR: {e}")\n\
-        return False\n\
-\n\
-# Execute the patch\n\
-success = patch_easyocr()\n\
-print(f"EasyOCR patching {\'successful\' if success else \'failed\'}")\n\
-\n\
-# Store as a module\n\
-with open("/usr/local/lib/python3.9/site-packages/easyocr_patch.py", "w") as f:\n\
-    f.write(open(__file__).read())\n\
-print("EasyOCR patch module saved")\n\
-' > /tmp/patch_easyocr.py && chmod +x /tmp/patch_easyocr.py
+COPY <<-'EOT' /tmp/patch_easyocr.py
+#!/usr/bin/env python3
+# Monkey patch EasyOCR to be faster
+import sys
+import os
+import time
+
+def patch_easyocr():
+    try:
+        import easyocr
+        original_init = easyocr.Reader.__init__
+        
+        # Override the initialization to use cached models
+        def faster_init(self, lang_list, gpu=True, model_storage_directory=None,
+                       download_enabled=True, user_network_directory=None, recog_network=None,
+                       detector_network=None, **kwargs):
+            # Set default paths to our cached models
+            if model_storage_directory is None:
+                model_storage_directory = "/root/.EasyOCR/model"
+            if user_network_directory is None:
+                user_network_directory = "/root/.EasyOCR/model"
+            if recog_network is None:
+                recog_network = "english_g2"  # Use smaller model
+                
+            # Call original but with download_enabled=False to use cached versions
+            original_init(self, lang_list, gpu=gpu,
+                          model_storage_directory=model_storage_directory,
+                          download_enabled=False,  # Always use cached
+                          user_network_directory=user_network_directory,
+                          recog_network=recog_network,
+                          detector_network=detector_network, **kwargs)
+        
+        # Apply the patch
+        easyocr.Reader.__init__ = faster_init
+        print("Applied EasyOCR initialization patch for faster loading")
+        
+        # Return True for success
+        return True
+    except Exception as e:
+        print(f"Error patching EasyOCR: {e}")
+        return False
+
+# Execute the patch
+success = patch_easyocr()
+print(f"EasyOCR patching {'successful' if success else 'failed'}")
+
+# Store as a module
+with open("/usr/local/lib/python3.9/site-packages/easyocr_patch.py", "w") as f:
+    f.write(open(__file__).read())
+print("EasyOCR patch module saved")
+EOT
+
+RUN chmod +x /tmp/patch_easyocr.py
 
 # Execute the patch script
 RUN python /tmp/patch_easyocr.py
 
 # Create a wrapper script that modifies the module after it's fully loaded
-RUN echo '#!/usr/bin/env python3\n\
-# First, fully import and initialize ultralytics\n\
-import ultralytics\n\
-import sys\n\
-import types\n\
-\n\
-# Verify the package is imported and ready\n\
-print("Ultralytics version:", ultralytics.__version__)\n\
-print("Available modules:", [name for name in dir(ultralytics) if not name.startswith("_")])\n\
-\n\
-# Now that the module is fully loaded, we can create our PoseModel class\n\
-# Define a dummy PoseModel class that will be used as a placeholder\n\
-class PoseModel(object):\n\
-    def __init__(self, *args, **kwargs):\n\
-        from ultralytics import YOLO\n\
-        self.model = YOLO(*args, **kwargs)\n\
-        for attr in dir(self.model):\n\
-            if not attr.startswith("_"):\n\
-                setattr(self, attr, getattr(self.model, attr))\n\
-\n\
-    def __call__(self, *args, **kwargs):\n\
-        return self.model(*args, **kwargs)\n\
-\n\
-# Add PoseModel to the ultralytics.nn.tasks module\n\
-import ultralytics.nn.tasks\n\
-ultralytics.nn.tasks.PoseModel = PoseModel\n\
-\n\
-print("PoseModel class successfully added to ultralytics.nn.tasks")\n\
-\n\
-# Verify we can load the models\n\
-try:\n\
-    from ultralytics import YOLO\n\
-    detector = YOLO("yolov8n.pt")\n\
-    detector2 = YOLO("yolov8s.pt")\n\
-    pose_model = YOLO("yolov8n-pose.pt")\n\
-    print("Successfully loaded all models")\n\
-except Exception as e:\n\
-    print("Error loading models:", e)\n\
-' > /tmp/patch_ultralytics.py && chmod +x /tmp/patch_ultralytics.py
+COPY <<-'EOT' /tmp/patch_ultralytics.py
+#!/usr/bin/env python3
+# First, fully import and initialize ultralytics
+import ultralytics
+import sys
+import types
+
+# Verify the package is imported and ready
+print("Ultralytics version:", ultralytics.__version__)
+print("Available modules:", [name for name in dir(ultralytics) if not name.startswith("_")])
+
+# Now that the module is fully loaded, we can create our PoseModel class
+# Define a dummy PoseModel class that will be used as a placeholder
+class PoseModel(object):
+    def __init__(self, *args, **kwargs):
+        from ultralytics import YOLO
+        self.model = YOLO(*args, **kwargs)
+        for attr in dir(self.model):
+            if not attr.startswith("_"):
+                setattr(self, attr, getattr(self.model, attr))
+
+    def __call__(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
+# Add PoseModel to the ultralytics.nn.tasks module
+import ultralytics.nn.tasks
+ultralytics.nn.tasks.PoseModel = PoseModel
+
+print("PoseModel class successfully added to ultralytics.nn.tasks")
+
+# Verify we can load the models
+try:
+    from ultralytics import YOLO
+    detector = YOLO("yolov8n.pt")
+    detector2 = YOLO("yolov8s.pt")
+    pose_model = YOLO("yolov8n-pose.pt")
+    print("Successfully loaded all models")
+except Exception as e:
+    print("Error loading models:", e)
+EOT
+
+RUN chmod +x /tmp/patch_ultralytics.py
 
 # Apply the patch 
 RUN python /tmp/patch_ultralytics.py
 
 # Create a startup script that applies the patch at runtime
-RUN echo '#!/usr/bin/env python3\n\
-import sys\n\
-import types\n\
-\n\
-def patch_ultralytics():\n\
-    import ultralytics.nn.tasks\n\
-    from ultralytics import YOLO\n\
-    \n\
-    if not hasattr(ultralytics.nn.tasks, "PoseModel"):\n\
-        # Define a wrapper class that delegates to YOLO\n\
-        class PoseModel(object):\n\
-            def __init__(self, *args, **kwargs):\n\
-                self.model = YOLO(*args, **kwargs)\n\
-                for attr in dir(self.model):\n\
-                    if not attr.startswith("_"):\n\
-                        setattr(self, attr, getattr(self.model, attr))\n\
-            \n\
-            def __call__(self, *args, **kwargs):\n\
-                return self.model(*args, **kwargs)\n\
-        \n\
-        # Add to the tasks module\n\
-        ultralytics.nn.tasks.PoseModel = PoseModel\n\
-        print("Applied PoseModel patch to ultralytics.nn.tasks")\n\
-    else:\n\
-        print("PoseModel already exists in ultralytics.nn.tasks")\n\
-\n\
-# This will be imported when the app starts\n\
-patch_ultralytics()\n\
-' > /usr/local/lib/python3.9/site-packages/ultralytics_patch.py
+COPY <<-'EOT' /usr/local/lib/python3.9/site-packages/ultralytics_patch.py
+#!/usr/bin/env python3
+import sys
+import types
+
+def patch_ultralytics():
+    import ultralytics.nn.tasks
+    from ultralytics import YOLO
+    
+    if not hasattr(ultralytics.nn.tasks, "PoseModel"):
+        # Define a wrapper class that delegates to YOLO
+        class PoseModel(object):
+            def __init__(self, *args, **kwargs):
+                self.model = YOLO(*args, **kwargs)
+                for attr in dir(self.model):
+                    if not attr.startswith("_"):
+                        setattr(self, attr, getattr(self.model, attr))
+            
+            def __call__(self, *args, **kwargs):
+                return self.model(*args, **kwargs)
+        
+        # Add to the tasks module
+        ultralytics.nn.tasks.PoseModel = PoseModel
+        print("Applied PoseModel patch to ultralytics.nn.tasks")
+    else:
+        print("PoseModel already exists in ultralytics.nn.tasks")
+
+# This will be imported when the app starts
+patch_ultralytics()
+EOT
 
 # Add the patch to be imported at app startup
 RUN echo "import ultralytics_patch" >> /usr/local/lib/python3.9/site-packages/ultralytics/__init__.py
 
 # Create a test script to verify loading
-RUN echo '#!/usr/bin/env python3\n\
-print("Testing YOLO model loading...")\n\
-try:\n\
-    from ultralytics import YOLO\n\
-    print("Successfully imported YOLO")\n\
-    # Test loading pose model\n\
-    model = YOLO("yolov8n-pose.pt")\n\
-    print("Successfully loaded pose model")\n\
-except Exception as e:\n\
-    print("Error:", e)\n\
-' > /tmp/test_models.py && chmod +x /tmp/test_models.py
+COPY <<-'EOT' /tmp/test_models.py
+#!/usr/bin/env python3
+print("Testing YOLO model loading...")
+try:
+    from ultralytics import YOLO
+    print("Successfully imported YOLO")
+    # Test loading pose model
+    model = YOLO("yolov8n-pose.pt")
+    print("Successfully loaded pose model")
+except Exception as e:
+    print("Error:", e)
+EOT
+
+RUN chmod +x /tmp/test_models.py
 
 # Test the model loading works
 RUN python /tmp/test_models.py
