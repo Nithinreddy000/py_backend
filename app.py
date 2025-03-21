@@ -23,22 +23,6 @@ import random
 # Add Firestore import
 from google.cloud import firestore
 
-# Try to import the MultiOCR class for optimized OCR processing
-try:
-    from multiocr import MultiOCR
-    print("Loaded MultiOCR module for optimized OCR processing")
-    USE_MULTI_OCR = True
-except ImportError:
-    print("MultiOCR module not available, falling back to standard EasyOCR")
-    USE_MULTI_OCR = False
-
-# Try to import EasyOCR patch for optimized initialization
-try:
-    import easyocr_patch
-    print("EasyOCR optimization patch loaded successfully")
-except ImportError:
-    print("EasyOCR optimization patch not available")
-
 # Add import for cloudinary
 import cloudinary
 import cloudinary.uploader
@@ -177,13 +161,7 @@ except Exception as e:
 app = Flask(__name__)
 # Configure CORS properly to avoid duplicate headers
 # Remove any other CORS initialization that might be later in the code
-CORS(app, 
-    resources={r"/*": {"origins": "*"}}, 
-    supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    max_age=3600
-)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # Configure upload settings
 UPLOAD_FOLDER = Path(__file__).parent / 'uploads'
@@ -408,10 +386,10 @@ def add_cors_headers(response):
     """Add CORS headers to all responses"""
     # Always overwrite CORS headers to ensure consistency
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Range')
-    response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag')
-    response.headers.add('Cross-Origin-Resource-Policy', 'cross-origin')
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Range'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type, Content-Disposition, Last-Modified, Accept-Ranges, ETag'
+    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
     response.headers['Vary'] = 'Origin'
     
     # Add content security policy to allow loading from CDNs
@@ -550,32 +528,34 @@ def focus_mesh(filename, mesh_name):
         print(f"Error in focus_mesh endpoint: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/health', methods=['GET', 'OPTIONS'])
-@cross_origin(origins='*', supports_credentials=True)
+@app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint for monitoring the service"""
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'message': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
-        return response
-        
-    # Check system status
-    status = {
-        'status': 'healthy',
-        'timestamp': datetime.datetime.now().isoformat(),
-        'model_service': 'active',
-        'storage': 'active'
+    """Simple health check endpoint to verify the server is running."""
+    import platform
+    import sys
+    
+    # Get basic system information
+    system_info = {
+        'python_version': sys.version,
+        'platform': platform.platform(),
+        'node': platform.node(),
     }
     
-    # Ensure CORS headers are included in the response
-    response = jsonify(status)
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Content-Type', 'application/json')
+    # Check if ML models are initialized
+    ml_status = {
+        'pose_model': pose_model is not None,
+        'jersey_detector': jersey_detector is not None,
+        'reader': reader is not None,
+        'lazy_load_enabled': os.environ.get('LAZY_LOAD_MODELS', 'true').lower() == 'true',
+        'ml_disabled': os.environ.get('DISABLE_ML_MODELS', 'false').lower() == 'true',
+    }
     
-    return response, 200
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.datetime.now().isoformat(),
+        'system_info': system_info,
+        'ml_status': ml_status,
+    })
 
 @app.route('/match_processing_status/<match_id>', methods=['GET'])
 def match_processing_status(match_id):
@@ -1128,22 +1108,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import supervision as sv
 
-# Import our optimized OCR module if available
-try:
-    from multiocr import MultiOCR
-    print("Loaded MultiOCR module for optimized OCR processing")
-    USE_MULTI_OCR = True
-except ImportError:
-    print("MultiOCR module not available, falling back to standard EasyOCR")
-    USE_MULTI_OCR = False
-    
-# Try to import the EasyOCR patch
-try:
-    import easyocr_patch
-    print("EasyOCR patch loaded for optimized initialization")
-except ImportError:
-    print("EasyOCR patch not available, using standard EasyOCR initialization")
-
 # Configure Cloudinary
 cloudinary.config(
     cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", "your-cloud-name"),
@@ -1194,27 +1158,8 @@ def initialize_models():
         # Initialize YOLOv8 object detection model for jersey detection
         jersey_detector = YOLO("yolov8n.pt")
     
-        # Initialize OCR reader using our optimized MultiOCR class if available
-        if USE_MULTI_OCR:
-            print("Initializing MultiOCR with fallback options...")
-            reader = MultiOCR(use_gpu=False)
-        else:
-            # Initialize standard EasyOCR reader
-            print("Initializing standard EasyOCR reader...")
-            try:
-                # Use pre-cached model path to avoid downloading
-                model_dir = "/root/.EasyOCR/model"
-                reader = easyocr.Reader(['en'], gpu=False, 
-                                       model_storage_directory=model_dir,
-                                       download_enabled=False,
-                                       user_network_directory=model_dir)
-            except Exception as e:
-                print(f"Error initializing EasyOCR: {e}")
-                # Create a dummy reader as fallback
-                class DummyReader:
-                    def readtext(self, image, **kwargs):
-                        return []
-                reader = DummyReader()
+        # Initialize OCR reader for jersey numbers
+        reader = easyocr.Reader(['en'])
     
         print("Models initialized successfully")
     except Exception as e:
@@ -1735,34 +1680,8 @@ def process_video(input_path, output_path, athletes_data, sport_type):
     print(f"Starting video processing: {input_path} -> {output_path}")
     
     try:
-        # Create a jersey detector instance with optimized OCR
-        jersey_detector = None
-        
-        # Try to use MultiOCR first
-        try:
-            from multiocr import MultiOCR
-            ocr_reader = MultiOCR(use_gpu=False)
-            jersey_detector = JerseyDetector(ocr_reader=ocr_reader)
-            print("Using MultiOCR for jersey detection")
-        except ImportError:
-            # Fall back to EasyOCR with optimized loading if MultiOCR is not available
-            try:
-                import easyocr
-                # Use pre-cached model path to avoid downloading at runtime
-                model_dir = "/root/.EasyOCR/model"
-                ocr_reader = easyocr.Reader(['en'], gpu=False, 
-                                           model_storage_directory=model_dir,
-                                           download_enabled=False)
-                jersey_detector = JerseyDetector(ocr_reader=ocr_reader)
-                print("Using EasyOCR for jersey detection")
-            except Exception as ocr_error:
-                # Create a dummy reader as last resort
-                print(f"Error initializing OCR for jersey detection: {ocr_error}")
-                class DummyReader:
-                    def readtext(self, *args, **kwargs):
-                        return []
-                jersey_detector = JerseyDetector(ocr_reader=DummyReader())
-                print("Using DummyReader for jersey detection (no OCR available)")
+        # Create a jersey detector instance
+        jersey_detector = JerseyDetector()
         
         # Get valid jersey numbers from athletes_data
         valid_jersey_numbers = [jersey for jersey in athletes_data.keys() 
@@ -1879,31 +1798,18 @@ def process_video(input_path, output_path, athletes_data, sport_type):
         
         # Initialize OCR reader for jersey detection
         try:
-            # Try to use our optimized MultiOCR class if available
-            if 'multiocr' in sys.modules:
-                from multiocr import MultiOCR
-                reader = MultiOCR(use_gpu=False)
-                print("Using MultiOCR for jersey detection with fallback options")
-            else:
-                # Try to use standard EasyOCR with optimized loading
-                import easyocr
-                # Use pre-cached model path to avoid downloading
-                model_dir = "/root/.EasyOCR/model"
-                reader = easyocr.Reader(['en'], gpu=False, 
-                                       model_storage_directory=model_dir,
-                                       download_enabled=False,
-                                       user_network_directory=model_dir)
-                print("Initialized EasyOCR for jersey detection")
+            import easyocr
+            reader = easyocr.Reader(['en'], gpu=False)
+            print("Initialized EasyOCR for jersey detection")
             jersey_detector.set_ocr_reader(reader)
         except Exception as e:
-            print(f"Error initializing OCR: {e}")
+            print(f"Error initializing EasyOCR: {e}")
             # Create a dummy reader
             class DummyReader:
                 def readtext(self, image, **kwargs):
                     return []
             reader = DummyReader()
             jersey_detector.set_ocr_reader(reader)
-            print("Using DummyReader as fallback for OCR")
         
         # Process frames
         frame_count = 0
