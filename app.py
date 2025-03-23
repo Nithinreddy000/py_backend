@@ -1891,17 +1891,12 @@ def process_video(input_path, output_path, athletes_data, sport_type):
                     # Get all track IDs
                     track_ids = [int(det[5]) for det in tracked_detections if len(det) >= 6]
                     
-                    # Get all unassigned jerseys
+                    # Get unassigned jerseys
                     unassigned_jerseys = []
                     for jersey, athlete in athletes_data.items():
                         if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
                             if athlete.get('track_id') is None:
                                 unassigned_jerseys.append(jersey)
-                    
-                    # Special case: ensure 01523 is in the unassigned list if it exists in athletes_data
-                    if '01523' in athletes_data and '01523' not in unassigned_jerseys:
-                        print("Special case: Adding 01523 to unassigned jerseys")
-                        unassigned_jerseys.append('01523')
                     
                     # Assign track IDs to unassigned jerseys
                     for i, jersey in enumerate(unassigned_jerseys):
@@ -2028,25 +2023,15 @@ def find_athlete_by_track_id(athletes_data, track_id):
                 athletes_data[jersey_number]['track_id'] = track_id
                 return jersey_number
     
-    # Special case for jersey number 01523 - prioritize this jersey if it's unassigned
-    special_jersey = '01523'
-    if special_jersey in athletes_data and athletes_data[special_jersey].get('track_id') is None:
-        print(f"Special case: Assigning track_id {track_id} to jersey {special_jersey}")
-        athletes_data[special_jersey]['track_id'] = track_id
-        
-        # Update the jersey map
-        if '_jersey_map' not in athletes_data:
-            athletes_data['_jersey_map'] = {}
-        athletes_data['_jersey_map'][track_id] = special_jersey
-        
-        return special_jersey
+    # Get the list of valid jerseys from athletes_data
+    valid_jerseys = [jersey for jersey in athletes_data.keys() 
+                    if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']]
     
-    # If still no match, try to assign based on available jerseys
+    # Try to assign any unassigned jersey (no special preference)
     unassigned_jerseys = []
-    for jersey, athlete in athletes_data.items():
-        if isinstance(jersey, str) and jersey not in ['_jersey_map', '_frame_count']:
-            if athlete.get('track_id') is None:
-                unassigned_jerseys.append(jersey)
+    for jersey in valid_jerseys:
+        if athletes_data[jersey].get('track_id') is None:
+            unassigned_jerseys.append(jersey)
     
     if unassigned_jerseys:
         # Assign the first unassigned jersey

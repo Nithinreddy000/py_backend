@@ -19,7 +19,12 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Create and activate virtual environment, then install requirements
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
 COPY . .

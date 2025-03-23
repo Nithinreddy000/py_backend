@@ -121,192 +121,88 @@ class JerseyDetector:
                     # Extract the jersey region
                     jersey_region = frame[jersey_y1:jersey_y2, jersey_x1:jersey_x2]
                     
-                    # Skip if the region is too small
-                    if jersey_region.shape[0] < 20 or jersey_region.shape[1] < 20:
+                    # If the region is too small, skip this detection
+                    if jersey_region.size == 0 or jersey_region.shape[0] < 10 or jersey_region.shape[1] < 10:
                         continue
-                    
-                    # Enhance the jersey region for better OCR
-                    # Convert to grayscale
-                    gray = cv2.cvtColor(jersey_region, cv2.COLOR_BGR2GRAY)
-                    
-                    # Apply adaptive thresholding
-                    thresh = cv2.adaptiveThreshold(
-                        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                        cv2.THRESH_BINARY_INV, 11, 2
-                    )
-                    
-                    # Try to detect text in both the original and enhanced images
-                    results = []
-                    try:
-                        if self.reader:
-                            # Try with the original image
-                            results.extend(self.reader.readtext(jersey_region))
-                            
-                            # Try with the enhanced image
-                            results.extend(self.reader.readtext(thresh))
-                    except Exception as e:
-                        print(f"OCR error: {e}")
-                        continue
-                    
-                    # Process the OCR results
-                    for (bbox, text, prob) in results:
-                        # Clean the text (remove non-numeric characters)
-                        cleaned_text = ''.join(c for c in text if c.isdigit())
                         
-                        # Skip if no digits were found
-                        if not cleaned_text:
+                    # OCR failed or no text detected, try to find matching jersey
+                    # Check if this detection is similar to any previous detection
+                    for prev_track_id, jersey in self.jersey_map.items():
+                        if jersey in valid_jersey_numbers:
+                            # Only try to match with valid jerseys
                             continue
-                        
-                        # Check if the detected number matches any of our valid jersey numbers
-                        # Try different formats (with/without leading zeros)
-                        matched_jersey = None
-                        
-                        # Direct match
-                        if cleaned_text in valid_jersey_numbers:
-                            matched_jersey = cleaned_text
-                        
-                        # Try with leading zeros
-                        elif any(jersey.endswith(cleaned_text) for jersey in valid_jersey_numbers):
-                            for jersey in valid_jersey_numbers:
-                                if jersey.endswith(cleaned_text):
-                                    matched_jersey = jersey
-                                    break
-                        
-                        # Try without leading zeros
-                        elif any(jersey.lstrip('0') == cleaned_text for jersey in valid_jersey_numbers):
-                            for jersey in valid_jersey_numbers:
-                                if jersey.lstrip('0') == cleaned_text:
-                                    matched_jersey = jersey
-                                    break
-                        
-                        # If we found a match
-                        if matched_jersey:
-                            confidence = prob
-                            
-                            # Update detection history for this track_id
-                            if track_id not in self.detection_history:
-                                self.detection_history[track_id] = {}
-                            
-                            if matched_jersey not in self.detection_history[track_id]:
-                                self.detection_history[track_id][matched_jersey] = 0
-                            
-                            self.detection_history[track_id][matched_jersey] += 1
-                            
-                            # Reset frames since last detection
-                            self.frames_since_last_detection[matched_jersey] = 0
-                            
-                            # Get the most frequently detected jersey number for this track_id
-                            if self.detection_history[track_id]:
-                                most_frequent_jersey = max(
-                                    self.detection_history[track_id].items(),
-                                    key=lambda x: x[1]
-                                )[0]
-                                
-                                # Increase confidence if this is a consistent detection
-                                if matched_jersey == most_frequent_jersey:
-                                    confidence = min(1.0, confidence + 0.1)
-                                    
-                                    # If we've seen this jersey consistently, make it a stable association
-                                    if self.detection_history[track_id][matched_jersey] >= 3:
-                                        self.stable_associations[track_id] = matched_jersey
-                                        confidence = 1.0
-                                        print(f"Created stable association: track_id {track_id} -> jersey {matched_jersey}")
-                                
-                                # Update if this is the best detection for this track_id
-                                if track_id not in self.confidence_map or confidence > self.confidence_map[track_id]:
-                                    self.jersey_map[track_id] = matched_jersey
-                                    self.confidence_map[track_id] = confidence
-                                    
-                                    print(f"Detected jersey #{matched_jersey} for track_id {track_id} with confidence {confidence:.2f}")
-                                    
-                                    # Add to detected jerseys list
-                                    detected_jerseys.append({
-                                        'jersey_number': matched_jersey,
-                                        'box_index': i,
-                                        'track_id': track_id,
-                                        'confidence': confidence
-                                    })
-            
-            # Special handling for jersey number 01523 - always ensure it's detected
-            special_jersey = '01523'
-            if special_jersey in valid_jersey_numbers:
-                # Check if this jersey is already assigned
-                is_assigned = False
-                assigned_track_id = None
-                
-                for track_id, jersey in self.jersey_map.items():
-                    if jersey == special_jersey:
-                        is_assigned = True
-                        assigned_track_id = track_id
-                        break
-                
-                # If not assigned and we have detections, assign it to the most likely track ID
-                if not is_assigned and detections:
-                    # Find the most central detection (likely to be the main athlete)
-                    frame_center_x = frame.shape[1] / 2
-                    closest_detection_idx = 0
-                    min_distance = float('inf')
                     
-                    for i, detection in enumerate(detections):
-                        if len(detection) >= 6:
-                            x1, y1, x2, y2 = map(int, detection[:4])
-                            center_x = (x1 + x2) / 2
-                            distance = abs(center_x - frame_center_x)
+                    # If we haven't assigned a jersey to this track_id yet, assign one based on position
+                    if track_id not in self.jersey_map and valid_jersey_numbers:
+                        # Sort detections by x-coordinate (left to right)
+                        detection_idx = sorted(range(len(detections)), 
+                                              key=lambda idx: (int(detections[idx][0]) + int(detections[idx][2])) / 2 
+                                              if len(detections[idx]) >= 4 else float('inf'))
+                        
+                        # Find position of current detection in the sorted list
+                        pos = detection_idx.index(i) if i in detection_idx else -1
+                        
+                        # Determine jersey number based on position
+                        if pos >= 0 and pos < len(valid_jersey_numbers):
+                            probable_jersey = valid_jersey_numbers[pos]
                             
-                            if distance < min_distance:
-                                min_distance = distance
-                                closest_detection_idx = i
-                    
-                    # Assign the special jersey to this track ID
-                    if len(detections[closest_detection_idx]) >= 6:
-                        track_id = int(detections[closest_detection_idx][5])
-                        self.jersey_map[track_id] = special_jersey
-                        self.confidence_map[track_id] = 0.8
-                        self.stable_associations[track_id] = special_jersey
-                        
-                        print(f"Specially assigned jersey #{special_jersey} to track_id {track_id}")
-                        
-                        # Add to detected jerseys list
-                        detected_jerseys.append({
-                            'jersey_number': special_jersey,
-                            'box_index': closest_detection_idx,
-                            'track_id': track_id,
-                            'confidence': 0.8,
-                            'is_special_assignment': True
-                        })
+                            # Check if this jersey is already assigned
+                            is_jersey_assigned = any(j == probable_jersey for j in self.jersey_map.values())
+                            if not is_jersey_assigned:
+                                self.jersey_map[track_id] = probable_jersey
+                                self.confidence_map[track_id] = 0.7
+                                
+                                print(f"Position-based assignment: track_id {track_id} -> jersey {probable_jersey}")
+                                
+                                # Add to detection history
+                                if track_id not in self.detection_history:
+                                    self.detection_history[track_id] = {}
+                                if probable_jersey not in self.detection_history[track_id]:
+                                    self.detection_history[track_id][probable_jersey] = 0
+                                self.detection_history[track_id][probable_jersey] += 1
+                                
+                                # Add to detected jerseys list
+                                detected_jerseys.append({
+                                    'jersey_number': probable_jersey,
+                                    'box_index': i,
+                                    'track_id': track_id,
+                                    'confidence': 0.7,
+                                    'is_position_based': True
+                                })
+                                
+                                # Reset frames since last detection
+                                self.frames_since_last_detection[probable_jersey] = 0
             
-            # If we have fewer detections than valid jersey numbers and no jersey numbers assigned yet,
-            # assign them based on position (left to right)
-            if len(detections) <= len(valid_jersey_numbers) and not self.jersey_map:
-                print("Assigning jersey numbers based on position (left to right)")
+            # If we have fewer detections than valid jersey numbers, make sure all jerseys are assigned
+            if len(detections) <= len(valid_jersey_numbers):
+                # Get unassigned jerseys
+                assigned_jerseys = set(self.jersey_map.values())
+                unassigned_jerseys = [j for j in valid_jersey_numbers if j not in assigned_jerseys]
                 
-                # Sort detections by x-coordinate (left to right)
-                sorted_detections = sorted(
-                    [(i, d) for i, d in enumerate(detections)],
-                    key=lambda x: (x[1][0] + x[1][2]) / 2  # Center x-coordinate
-                )
+                # Get unassigned track IDs
+                assigned_track_ids = set(self.jersey_map.keys())
+                unassigned_track_ids = [int(det[5]) for det in detections 
+                                       if len(det) >= 6 and int(det[5]) not in assigned_track_ids]
                 
-                # Assign jersey numbers
-                for i, (detection_idx, detection) in enumerate(sorted_detections):
-                    if i < len(valid_jersey_numbers):
-                        jersey_number = valid_jersey_numbers[i]
-                        track_id = int(detection[5]) if len(detection) >= 6 else i
-                        
+                # Assign unassigned jerseys to unassigned track IDs
+                for i, track_id in enumerate(unassigned_track_ids):
+                    if i < len(unassigned_jerseys):
+                        jersey_number = unassigned_jerseys[i]
                         self.jersey_map[track_id] = jersey_number
-                        self.confidence_map[track_id] = 0.7  # Medium confidence for position-based assignment
+                        self.confidence_map[track_id] = 0.7
                         
-                        # Reset frames since last detection
-                        self.frames_since_last_detection[jersey_number] = 0
-                        
-                        print(f"Assigned jersey #{jersey_number} to track_id {track_id} based on position")
+                        print(f"Assigned unassigned jersey {jersey_number} to track_id {track_id}")
                         
                         # Add to detected jerseys list
                         detected_jerseys.append({
                             'jersey_number': jersey_number,
-                            'box_index': detection_idx,
                             'track_id': track_id,
-                            'confidence': 0.7
+                            'confidence': 0.7,
+                            'is_assigned': True
                         })
+                        
+                        # Reset frames since last detection
+                        self.frames_since_last_detection[jersey_number] = 0
             
             # Update the athletes_data with the detected jersey numbers
             for track_id, jersey_number in self.jersey_map.items():

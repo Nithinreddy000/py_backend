@@ -18,6 +18,12 @@ export MKL_NUM_THREADS=1
 export PYTHONUNBUFFERED=1
 export PYTHONGC="threshold=700000"
 
+# Activate virtual environment if it exists
+if [ -d "/app/venv" ]; then
+    echo "Activating virtual environment..."
+    source /app/venv/bin/activate
+fi
+
 # Start Gunicorn server - use exec to replace the shell process
 # This ensures proper signal handling in Cloud Run
 echo "Starting Gunicorn server with optimized settings on port ${PORT}..."

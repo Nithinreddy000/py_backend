@@ -41,7 +41,7 @@ def test_model_endpoint(base_url, model_path):
 
 if __name__ == "__main__":
     # Default values
-    default_base_url = "https://py-backend-410293317488.us-central1.run.app"
+    default_base_url = "http://34.30.180.220/"
     default_model_path = "models/z-anatomy/Muscular.glb"
     
     # Use the provided URL or default
